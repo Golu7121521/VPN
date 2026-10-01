@@ -882,7 +882,7 @@ jobs:
         }
         EOF
 
-        - name: Build release APK and AAB
+    - name: Build release APK and AAB
       run: gradle assembleRelease bundleRelease --stacktrace
 
     - name: Upload Release Files
