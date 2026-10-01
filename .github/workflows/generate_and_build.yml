@@ -108,7 +108,10 @@ jobs:
         cat << 'EOF' > app/src/main/res/values/themes.xml
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
-            <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar" />
+            <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+                <item name="android:windowFullscreen">true</item>
+                <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+            </style>
         </resources>
         EOF
 
@@ -193,12 +196,11 @@ jobs:
 
                 if (prefs.getBoolean("firstRun", true)) {
                     new AlertDialog.Builder(this)
-    .setTitle(" Disable Battery Optimization")
-    .setMessage("Please set Battery Optimization to 'No Restrictions' in App Info. This prevents the system from stopping your recordings in the background.")
-    .setPositiveButton("Got It", (dialog, which) -> prefs.edit().putBoolean("firstRun", false).apply())
-    .setCancelable(false)
-    .show();
-
+                        .setTitle("⚠️ Battery Optimization")
+                        .setMessage("Set Battery Optimization to 'No Restrictions' in App Info to prevent recording stops.")
+                        .setPositiveButton("Got It", (dialog, which) -> prefs.edit().putBoolean("firstRun", false).apply())
+                        .setCancelable(false)
+                        .show();
                 }
 
                 int p = (int) (20 * getResources().getDisplayMetrics().density);
@@ -224,11 +226,6 @@ jobs:
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = p;
                 root.addView(start, lp);
-
-                TextView info = new TextView(this);
-                info.setText("Start ke baad app background mein chala jayega. Pause / Resume / Stop & Save notification se karo. Video Movies/GameRec folder mein save hogi.");
-                info.setPadding(0, p, 0, 0);
-                root.addView(info);
 
                 ScrollView sv = new ScrollView(this);
                 sv.addView(root);
