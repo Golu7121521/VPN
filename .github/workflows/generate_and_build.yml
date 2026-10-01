@@ -24,8 +24,20 @@ jobs:
         mkdir -p app/src/main/java/com/gamevpn/free
         mkdir -p app/src/main/res/layout
         mkdir -p app/src/main/res/values
+        mkdir -p gradle/wrapper
 
-        # 1. gradle.properties (Full build optimization & AndroidX fix)
+        # 1. gradle/wrapper/gradle-wrapper.properties (Direct wrapper setup)
+        cat << 'EOF' > gradle/wrapper/gradle-wrapper.properties
+        distributionBase=GRADLE_USER_HOME
+        distributionPath=wrapper/dists
+        distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip
+        networkTimeout=10000
+        validateDistributionUrl=true
+        zipStoreBase=GRADLE_USER_HOME
+        zipStorePath=wrapper/dists
+        EOF
+
+        # 2. gradle.properties
         cat << 'EOF' > gradle.properties
         android.useAndroidX=true
         android.enableJetifier=true
@@ -33,7 +45,7 @@ jobs:
         org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
         EOF
 
-        # 2. settings.gradle
+        # 3. settings.gradle
         cat << 'EOF' > settings.gradle
         pluginManagement {
             repositories {
@@ -53,14 +65,14 @@ jobs:
         include ':app'
         EOF
 
-        # 3. Root build.gradle
+        # 4. Root build.gradle
         cat << 'EOF' > build.gradle
         plugins {
             id 'com.android.application' version '8.2.2' apply false
         }
         EOF
 
-        # 4. app/build.gradle (Lint & compile flags fixed)
+        # 5. app/build.gradle
         cat << 'EOF' > app/build.gradle
         plugins {
             id 'com.android.application'
@@ -105,7 +117,7 @@ jobs:
         }
         EOF
 
-        # 5. colors.xml (AAPT2 fix)
+        # 6. colors.xml
         cat << 'EOF' > app/src/main/res/values/colors.xml
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
@@ -116,14 +128,14 @@ jobs:
         </resources>
         EOF
 
-        # 6. strings.xml
+        # 7. strings.xml
         cat << 'EOF' > app/src/main/res/values/strings.xml
         <resources>
             <string name="app_name">Fast Game VPN</string>
         </resources>
         EOF
 
-        # 7. themes.xml (Material style crash fix)
+        # 8. themes.xml
         cat << 'EOF' > app/src/main/res/values/themes.xml
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
@@ -136,7 +148,7 @@ jobs:
         </resources>
         EOF
 
-        # 8. AndroidManifest.xml
+        # 9. AndroidManifest.xml (No conflicting service declaration)
         cat << 'EOF' > app/src/main/AndroidManifest.xml
         <manifest xmlns:android="http://schemas.android.com/apk/res/android">
             <uses-permission android:name="android.permission.INTERNET" />
@@ -157,20 +169,11 @@ jobs:
                         <category android:name="android.intent.category.LAUNCHER" />
                     </intent-filter>
                 </activity>
-
-                <service
-                    android:name="com.wireguard.android.backend.GoBackend$VpnService"
-                    android:permission="android.permission.BIND_VPN_SERVICE"
-                    android:exported="true">
-                    <intent-filter>
-                        <action android:name="android.net.VpnService" />
-                    </intent-filter>
-                </service>
             </application>
         </manifest>
         EOF
 
-        # 9. UI Layout (activity_main.xml)
+        # 10. UI Layout (activity_main.xml)
         cat << 'EOF' > app/src/main/res/layout/activity_main.xml
         <?xml version="1.0" encoding="utf-8"?>
         <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -210,7 +213,7 @@ jobs:
         </LinearLayout>
         EOF
 
-        # 10. MainActivity.java
+        # 11. MainActivity.java
         cat << 'EOF' > app/src/main/java/com/gamevpn/free/MainActivity.java
         package com.gamevpn.free;
 
@@ -257,9 +260,8 @@ jobs:
         }
         EOF
 
-    - name: Setup Gradle Wrapper
-      run: |
-        gradle wrapper --gradle-version 8.4
+    - name: Generate Gradle Executable
+      run: gradle wrapper --gradle-version 8.4
 
     - name: Grant Execute Permission
       run: chmod +x gradlew
