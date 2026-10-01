@@ -1,7 +1,7 @@
 name: Generate Project and Build APK
 
 on:
-  workflow_dispatch: # Actions टैब से मैन्युअली रन करने के लिए
+  workflow_dispatch:
   push:
     branches: [ "main" ]
 
@@ -19,14 +19,20 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # Step: पूरे प्रोजेक्ट की फाइल्स को ऑटोमैटिकली जेनरेट करना
     - name: Scaffold Android Project
       run: |
         mkdir -p app/src/main/java/com/gamevpn/free
         mkdir -p app/src/main/res/layout
         mkdir -p app/src/main/res/values
 
-        # 1. Root settings.gradle
+        # 1. gradle.properties (Fix for AndroidX Error)
+        cat << 'EOF' > gradle.properties
+        android.useAndroidX=true
+        android.enableJetifier=true
+        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        EOF
+
+        # 2. Root settings.gradle
         cat << 'EOF' > settings.gradle
         pluginManagement {
             repositories {
@@ -47,14 +53,14 @@ jobs:
         include ':app'
         EOF
 
-        # 2. Root build.gradle
+        # 3. Root build.gradle
         cat << 'EOF' > build.gradle
         plugins {
             id 'com.android.application' version '8.2.2' apply false
         }
         EOF
 
-        # 3. app/build.gradle
+        # 4. app/build.gradle
         cat << 'EOF' > app/build.gradle
         plugins {
             id 'com.android.application'
@@ -86,12 +92,11 @@ jobs:
         dependencies {
             implementation 'androidx.appcompat:appcompat:1.6.1'
             implementation 'com.google.android.material:material:1.11.0'
-            // OpenVPN Core Library (JitPack)
             implementation 'com.github.schwabe:ics-openvpn:0.7.47'
         }
         EOF
 
-        # 4. AndroidManifest.xml
+        # 5. AndroidManifest.xml
         cat << 'EOF' > app/src/main/AndroidManifest.xml
         <manifest xmlns:android="http://schemas.android.com/apk/res/android">
             <uses-permission android:name="android.permission.INTERNET" />
@@ -115,7 +120,7 @@ jobs:
         </manifest>
         EOF
 
-        # 5. UI Layout (activity_main.xml)
+        # 6. UI Layout (activity_main.xml)
         cat << 'EOF' > app/src/main/res/layout/activity_main.xml
         <?xml version="1.0" encoding="utf-8"?>
         <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -154,14 +159,14 @@ jobs:
         </LinearLayout>
         EOF
 
-        # 6. strings.xml
+        # 7. strings.xml
         cat << 'EOF' > app/src/main/res/values/strings.xml
         <resources>
             <string name="app_name">Fast Game VPN</string>
         </resources>
         EOF
 
-        # 7. MainActivity.java (Logic to fetch Singapore server & trigger VPN)
+        # 8. MainActivity.java
         cat << 'EOF' > app/src/main/java/com/gamevpn/free/MainActivity.java
         package com.gamevpn.free;
 
@@ -199,7 +204,6 @@ jobs:
             private void fetchSingaporeNode() {
                 new Thread(() -> {
                     try {
-                        // VPNGate Public API Fetch
                         URL url = new URL("https://www.vpngate.net/api/iphone/");
                         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                         conn.setRequestMethod("GET");
@@ -211,9 +215,8 @@ jobs:
 
                         while ((line = reader.readLine()) != null) {
                             String[] parts = line.split(",");
-                            // Check for Singapore servers (CountryShort = SG or CountryLong = Singapore)
                             if (parts.length > 14 && (parts[1].equalsIgnoreCase("Singapore") || parts[2].equalsIgnoreCase("SG"))) {
-                                bestConfigBase64 = parts[14]; // Base64 encoded OpenVPN config
+                                bestConfigBase64 = parts[14];
                                 break;
                             }
                         }
@@ -246,7 +249,6 @@ jobs:
         }
         EOF
 
-    # Step: Gradle Wrapper तैयार करना
     - name: Setup Gradle Wrapper
       run: |
         gradle wrapper --gradle-version 8.4
@@ -254,11 +256,9 @@ jobs:
     - name: Grant Execute Permission
       run: chmod +x gradlew
 
-    # Step: APK कंपाइल करना
     - name: Build Debug APK
       run: ./gradlew assembleDebug --stacktrace
 
-    # Step: APK को डाउनलोड के लिए उपलब्ध कराना
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
