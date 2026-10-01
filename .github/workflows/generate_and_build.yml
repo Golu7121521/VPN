@@ -193,11 +193,12 @@ jobs:
 
                 if (prefs.getBoolean("firstRun", true)) {
                     new AlertDialog.Builder(this)
-                        .setTitle("⚠️ Battery Settings Zaroori Hai!")
-                        .setMessage("Background mein gameplay recording na ruke, isliye phone ki app info settings mein jakar is app ke liye 'Battery Saver' ya 'Battery Optimization' ko 'No Restrictions' par set zaroor karein.")
-                        .setPositiveButton("Samajh Gaya", (dialog, which) -> prefs.edit().putBoolean("firstRun", false).apply())
-                        .setCancelable(false)
-                        .show();
+    .setTitle(" Disable Battery Optimization")
+    .setMessage("Please set Battery Optimization to 'No Restrictions' in App Info. This prevents the system from stopping your recordings in the background.")
+    .setPositiveButton("Got It", (dialog, which) -> prefs.edit().putBoolean("firstRun", false).apply())
+    .setCancelable(false)
+    .show();
+
                 }
 
                 int p = (int) (20 * getResources().getDisplayMetrics().density);
