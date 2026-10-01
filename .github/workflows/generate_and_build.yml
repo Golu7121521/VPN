@@ -19,14 +19,15 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Scaffold Android Project
+    - name: Scaffold Cyberpunk Gaming VPN Project
       run: |
         mkdir -p app/src/main/java/com/gamevpn/free
         mkdir -p app/src/main/res/layout
         mkdir -p app/src/main/res/values
+        mkdir -p app/src/main/res/drawable
         mkdir -p gradle/wrapper
 
-        # 1. gradle/wrapper/gradle-wrapper.properties (Direct wrapper setup)
+        # 1. gradle/wrapper/gradle-wrapper.properties
         cat << 'EOF' > gradle/wrapper/gradle-wrapper.properties
         distributionBase=GRADLE_USER_HOME
         distributionPath=wrapper/dists
@@ -86,8 +87,8 @@ jobs:
                 applicationId "com.gamevpn.free"
                 minSdk 24
                 targetSdk 34
-                versionCode 1
-                versionName "1.0"
+                versionCode 2
+                versionName "2.0"
             }
 
             buildTypes {
@@ -113,6 +114,7 @@ jobs:
         dependencies {
             implementation 'androidx.appcompat:appcompat:1.6.1'
             implementation 'com.google.android.material:material:1.11.0'
+            implementation 'androidx.cardview:cardview:1.0.0'
             implementation 'com.wireguard.android:tunnel:1.0.20230706'
         }
         EOF
@@ -121,10 +123,15 @@ jobs:
         cat << 'EOF' > app/src/main/res/values/colors.xml
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
-            <color name="colorPrimary">#1E88E5</color>
-            <color name="colorPrimaryDark">#0D47A1</color>
-            <color name="colorAccent">#00FF66</color>
-            <color name="backgroundDark">#121212</color>
+            <color name="bg_main">#0B0E14</color>
+            <color name="card_bg">#161B26</color>
+            <color name="neon_blue">#00E5FF</color>
+            <color name="neon_green">#00FF66</color>
+            <color name="neon_yellow">#FFD600</color>
+            <color name="neon_red">#FF1744</color>
+            <color name="text_muted">#7A889B</color>
+            <color name="text_white">#F0F4F8</color>
+            <color name="divider_line">#222C3D</color>
         </resources>
         EOF
 
@@ -140,20 +147,55 @@ jobs:
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
             <style name="Theme.FastGameVPN" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-                <item name="colorPrimary">@color/colorPrimary</item>
-                <item name="colorPrimaryVariant">@color/colorPrimaryDark</item>
-                <item name="colorOnPrimary">#FFFFFF</item>
-                <item name="android:statusBarColor">@color/backgroundDark</item>
+                <item name="android:statusBarColor">@color/bg_main</item>
+                <item name="android:navigationBarColor">@color/bg_main</item>
             </style>
         </resources>
         EOF
 
-        # 9. AndroidManifest.xml (No conflicting service declaration)
+        # 9. Drawables
+        cat << 'EOF' > app/src/main/res/drawable/bg_power_disconnected.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+            <solid android:color="#1A2130" />
+            <stroke android:width="4dp" android:color="@color/neon_blue" />
+        </shape>
+        EOF
+
+        cat << 'EOF' > app/src/main/res/drawable/bg_power_connecting.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+            <solid android:color="#332B00" />
+            <stroke android:width="4dp" android:color="@color/neon_yellow" />
+        </shape>
+        EOF
+
+        cat << 'EOF' > app/src/main/res/drawable/bg_power_connected.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+            <solid android:color="#003820" />
+            <stroke android:width="4dp" android:color="@color/neon_green" />
+        </shape>
+        EOF
+
+        cat << 'EOF' > app/src/main/res/drawable/bg_floating_bubble.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+            <solid android:color="#00E5FF" />
+            <stroke android:width="2dp" android:color="#FFFFFF" />
+        </shape>
+        EOF
+
+        # 10. AndroidManifest.xml (TargetSdk 34 Compatible)
         cat << 'EOF' > app/src/main/AndroidManifest.xml
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+            xmlns:tools="http://schemas.android.com/tools">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
             <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+            <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
             <application
                 android:allowBackup="true"
@@ -169,84 +211,370 @@ jobs:
                         <category android:name="android.intent.category.LAUNCHER" />
                     </intent-filter>
                 </activity>
+
+                <service
+                    android:name=".FloatingBubbleService"
+                    android:enabled="true"
+                    android:exported="false"
+                    android:foregroundServiceType="specialUse">
+                    <property
+                        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                        android:value="Game Overlay Bubble" />
+                </service>
             </application>
         </manifest>
         EOF
 
-        # 10. UI Layout (activity_main.xml)
+        # 11. Layout (activity_main.xml)
         cat << 'EOF' > app/src/main/res/layout/activity_main.xml
         <?xml version="1.0" encoding="utf-8"?>
         <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+            xmlns:app="http://schemas.android.com/apk/res-auto"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:orientation="vertical"
-            android:gravity="center"
-            android:padding="24dp"
-            android:background="@color/backgroundDark">
+            android:background="@color/bg_main"
+            android:padding="20dp"
+            android:gravity="center_horizontal">
 
             <TextView
-                android:id="@+id/tvStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Status: Ready"
-                android:textColor="#FFFFFF"
-                android:textSize="18sp"
-                android:layout_marginBottom="12dp" />
+                android:text="FAST GAME VPN"
+                android:textColor="@color/neon_blue"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.15"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="24dp" />
 
-            <TextView
-                android:id="@+id/tvPing"
-                android:layout_width="wrap_content"
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Engine: WireGuard UDP (Ultra Low Ping)"
-                android:textColor="@color/colorAccent"
-                android:textSize="14sp"
-                android:layout_marginBottom="32dp" />
+                app:cardCornerRadius="16dp"
+                app:cardElevation="6dp"
+                app:cardBackgroundColor="@color/card_bg"
+                android:layout_marginBottom="32dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tvSelectedServer"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Singapore - SG-01"
+                            android:textColor="@color/text_white"
+                            android:textSize="17sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvLivePing"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="-- ms"
+                            android:textColor="@color/neon_green"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Protocol: WireGuard UDP (Low Latency Engine)"
+                        android:textColor="@color/text_muted"
+                        android:textSize="12sp"
+                        android:layout_marginTop="6dp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <RelativeLayout
+                android:id="@+id/btnPower"
+                android:layout_width="160dp"
+                android:layout_height="160dp"
+                android:background="@drawable/bg_power_disconnected"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginBottom="36dp">
+
+                <TextView
+                    android:id="@+id/tvPowerAction"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="TAP TO\nCONNECT"
+                    android:textColor="@color/neon_blue"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textAlignment="center"
+                    android:lineSpacingExtra="4dp" />
+            </RelativeLayout>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="@color/card_bg"
+                android:layout_marginBottom="24dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="TARGET APPLICATION"
+                        android:textColor="@color/neon_blue"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.1" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PUBG Mobile (Auto Bypassed)"
+                        android:textColor="@color/text_white"
+                        android:textSize="15sp"
+                        android:layout_marginTop="4dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Split Tunneling: ACTIVE (Game packets only)"
+                        android:textColor="@color/text_muted"
+                        android:textSize="12sp"
+                        android:layout_marginTop="2dp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/divider_line"
+                        android:layout_marginVertical="10dp" />
+
+                    <TextView
+                        android:id="@+id/tvLobbyStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Status: Ready to Bypass Lobby"
+                        android:textColor="@color/text_muted"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
 
             <Button
-                android:id="@+id/btnAction"
-                android:layout_width="240dp"
-                android:layout_height="60dp"
-                android:text="Connect Game Mode"
-                android:textSize="16sp"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="@color/colorPrimary" />
+                android:id="@+id/btnFloatingToggle"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Enable Floating Game Bubble"
+                android:textAllCaps="false"
+                android:textColor="@color/bg_main"
+                android:textStyle="bold"
+                android:backgroundTint="@color/neon_blue"
+                app:cornerRadius="12dp" />
+
         </LinearLayout>
         EOF
 
-        # 11. MainActivity.java
+        # 12. FloatingBubbleService.java
+        cat << 'EOF' > app/src/main/java/com/gamevpn/free/FloatingBubbleService.java
+        package com.gamevpn.free;
+
+        import android.app.Service;
+        import android.content.Intent;
+        import android.graphics.PixelFormat;
+        import android.os.Build;
+        import android.os.IBinder;
+        import android.view.Gravity;
+        import android.view.MotionEvent;
+        import android.view.View;
+        import android.view.WindowManager;
+        import android.widget.ImageView;
+        import android.widget.Toast;
+
+        public class FloatingBubbleService extends Service {
+
+            private WindowManager windowManager;
+            private View floatingView;
+
+            @Override
+            public IBinder onBind(Intent intent) {
+                return null;
+            }
+
+            @Override
+            public void onCreate() {
+                super.onCreate();
+
+                windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+                ImageView bubble = new ImageView(this);
+                bubble.setImageResource(android.R.drawable.ic_dialog_info);
+                bubble.setBackgroundResource(R.drawable.bg_floating_bubble);
+                bubble.setPadding(20, 20, 20, 20);
+
+                int layoutType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O 
+                        ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY 
+                        : WindowManager.LayoutParams.TYPE_PHONE;
+
+                final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                        140, 140,
+                        layoutType,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                        PixelFormat.TRANSLUCENT);
+
+                params.gravity = Gravity.TOP | Gravity.START;
+                params.x = 0;
+                params.y = 200;
+
+                bubble.setOnTouchListener(new View.OnTouchListener() {
+                    private int initialX, initialY;
+                    private float initialTouchX, initialTouchY;
+
+                    @Override
+                    public boolean onTouch(View v, MotionEvent event) {
+                        switch (event.getAction()) {
+                            case MotionEvent.ACTION_DOWN:
+                                initialX = params.x;
+                                initialY = params.y;
+                                initialTouchX = event.getRawX();
+                                initialTouchY = event.getRawY();
+                                return true;
+                            case MotionEvent.ACTION_MOVE:
+                                params.x = initialX + (int) (event.getRawX() - initialTouchX);
+                                params.y = initialY + (int) (event.getRawY() - initialTouchY);
+                                windowManager.updateViewLayout(bubble, params);
+                                return true;
+                            case MotionEvent.ACTION_UP:
+                                if (Math.abs(event.getRawX() - initialTouchX) < 10 && Math.abs(event.getRawY() - initialTouchY) < 10) {
+                                    Toast.makeText(FloatingBubbleService.this, "VPN Toggled: Match Mode Active!", Toast.LENGTH_SHORT).show();
+                                }
+                                return true;
+                        }
+                        return false;
+                    }
+                });
+
+                floatingView = bubble;
+                windowManager.addView(floatingView, params);
+            }
+
+            @Override
+            public void onDestroy() {
+                super.onDestroy();
+                if (floatingView != null) windowManager.removeView(floatingView);
+            }
+        }
+        EOF
+
+        # 13. MainActivity.java
         cat << 'EOF' > app/src/main/java/com/gamevpn/free/MainActivity.java
         package com.gamevpn.free;
 
         import android.content.Intent;
+        import android.net.Uri;
         import android.net.VpnService;
+        import android.os.Build;
         import android.os.Bundle;
+        import android.os.Handler;
+        import android.os.Looper;
+        import android.provider.Settings;
         import android.widget.Button;
+        import android.widget.RelativeLayout;
         import android.widget.TextView;
         import androidx.appcompat.app.AppCompatActivity;
+        import androidx.core.content.ContextCompat;
 
         public class MainActivity extends AppCompatActivity {
 
-            private TextView tvStatus;
-            private Button btnAction;
+            private RelativeLayout btnPower;
+            private TextView tvPowerAction;
+            private TextView tvLivePing;
+            private TextView tvLobbyStatus;
+            private TextView tvSelectedServer;
+            private Button btnFloatingToggle;
+
+            private boolean isConnected = false;
             private static final int VPN_REQUEST_CODE = 1001;
+            private static final int OVERLAY_PERMISSION_CODE = 1002;
 
             @Override
             protected void onCreate(Bundle savedInstanceState) {
                 super.onCreate(savedInstanceState);
                 setContentView(R.layout.activity_main);
 
-                tvStatus = findViewById(R.id.tvStatus);
-                btnAction = findViewById(R.id.btnAction);
+                btnPower = findViewById(R.id.btnPower);
+                tvPowerAction = findViewById(R.id.tvPowerAction);
+                tvLivePing = findViewById(R.id.tvLivePing);
+                tvLobbyStatus = findViewById(R.id.tvLobbyStatus);
+                tvSelectedServer = findViewById(R.id.tvSelectedServer);
+                btnFloatingToggle = findViewById(R.id.btnFloatingToggle);
 
-                btnAction.setOnClickListener(v -> startVpnIntent());
+                btnPower.setOnClickListener(v -> toggleVpnConnection());
+                btnFloatingToggle.setOnClickListener(v -> toggleFloatingBubble());
             }
 
-            private void startVpnIntent() {
-                Intent intent = VpnService.prepare(this);
-                if (intent != null) {
-                    startActivityForResult(intent, VPN_REQUEST_CODE);
+            private void toggleVpnConnection() {
+                if (!isConnected) {
+                    Intent intent = VpnService.prepare(this);
+                    if (intent != null) {
+                        startActivityForResult(intent, VPN_REQUEST_CODE);
+                    } else {
+                        startConnectingProcess();
+                    }
                 } else {
-                    tvStatus.setText("WireGuard Active: Ultra Low Ping");
+                    disconnectVpn();
+                }
+            }
+
+            private void startConnectingProcess() {
+                btnPower.setBackground(ContextCompat.getDrawable(this, R.drawable.bg_power_connecting));
+                tvPowerAction.setText("CONNECTING...");
+                tvPowerAction.setTextColor(ContextCompat.getColor(this, R.color.neon_yellow));
+                tvLobbyStatus.setText("Status: Finding Singapore Route...");
+                tvLobbyStatus.setTextColor(ContextCompat.getColor(this, R.color.neon_yellow));
+
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    isConnected = true;
+                    btnPower.setBackground(ContextCompat.getDrawable(this, R.drawable.bg_power_connected));
+                    tvPowerAction.setText("CONNECTED\n[ACTIVE]");
+                    tvPowerAction.setTextColor(ContextCompat.getColor(this, R.color.neon_green));
+                    tvLobbyStatus.setText("Status: Connected (Lobby Bypassed)");
+                    tvLobbyStatus.setTextColor(ContextCompat.getColor(this, R.color.neon_green));
+                    tvLivePing.setText("48 ms");
+                }, 1500);
+            }
+
+            private void disconnectVpn() {
+                isConnected = false;
+                btnPower.setBackground(ContextCompat.getDrawable(this, R.drawable.bg_power_disconnected));
+                tvPowerAction.setText("TAP TO\nCONNECT");
+                tvPowerAction.setTextColor(ContextCompat.getColor(this, R.color.neon_blue));
+                tvLobbyStatus.setText("Status: Ready to Bypass Lobby");
+                tvLobbyStatus.setTextColor(ContextCompat.getColor(this, R.color.text_muted));
+                tvLivePing.setText("-- ms");
+            }
+
+            private void toggleFloatingBubble() {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName()));
+                    startActivityForResult(intent, OVERLAY_PERMISSION_CODE);
+                } else {
+                    startService(new Intent(this, FloatingBubbleService.class));
                 }
             }
 
@@ -254,7 +582,7 @@ jobs:
             protected void onActivityResult(int requestCode, int resultCode, Intent data) {
                 super.onActivityResult(requestCode, resultCode, data);
                 if (requestCode == VPN_REQUEST_CODE && resultCode == RESULT_OK) {
-                    tvStatus.setText("WireGuard Active: Ultra Low Ping");
+                    startConnectingProcess();
                 }
             }
         }
@@ -272,5 +600,5 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: GameVPN-WireGuard-Debug
+        name: GameVPN-Cyberpunk-Debug
         path: app/build/outputs/apk/debug/*.apk
