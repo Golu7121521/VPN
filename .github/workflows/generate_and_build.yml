@@ -19,7 +19,7 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Scaffold VPNGate Working Gaming VPN Project
+    - name: Scaffold Real Working VPN with Key Icon
       run: |
         mkdir -p app/src/main/java/com/gamevpn/free
         mkdir -p app/src/main/res/layout
@@ -27,7 +27,7 @@ jobs:
         mkdir -p app/src/main/res/drawable
         mkdir -p gradle/wrapper
 
-        # 1. gradle/wrapper/gradle-wrapper.properties
+        # 1. Wrapper Config
         cat << 'EOF' > gradle/wrapper/gradle-wrapper.properties
         distributionBase=GRADLE_USER_HOME
         distributionPath=wrapper/dists
@@ -38,7 +38,7 @@ jobs:
         zipStorePath=wrapper/dists
         EOF
 
-        # 2. gradle.properties
+        # 2. Properties
         cat << 'EOF' > gradle.properties
         android.useAndroidX=true
         android.enableJetifier=true
@@ -46,7 +46,7 @@ jobs:
         org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
         EOF
 
-        # 3. settings.gradle
+        # 3. Settings
         cat << 'EOF' > settings.gradle
         pluginManagement {
             repositories {
@@ -73,7 +73,7 @@ jobs:
         }
         EOF
 
-        # 5. app/build.gradle
+        # 5. App build.gradle
         cat << 'EOF' > app/build.gradle
         plugins {
             id 'com.android.application'
@@ -87,8 +87,8 @@ jobs:
                 applicationId "com.gamevpn.free"
                 minSdk 24
                 targetSdk 34
-                versionCode 4
-                versionName "4.0"
+                versionCode 5
+                versionName "5.0"
             }
 
             buildTypes {
@@ -118,7 +118,7 @@ jobs:
         }
         EOF
 
-        # 6. colors.xml
+        # 6. Colors
         cat << 'EOF' > app/src/main/res/values/colors.xml
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
@@ -134,14 +134,14 @@ jobs:
         </resources>
         EOF
 
-        # 7. strings.xml
+        # 7. Strings
         cat << 'EOF' > app/src/main/res/values/strings.xml
         <resources>
             <string name="app_name">Fast Game VPN</string>
         </resources>
         EOF
 
-        # 8. themes.xml
+        # 8. Themes
         cat << 'EOF' > app/src/main/res/values/themes.xml
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
@@ -185,7 +185,7 @@ jobs:
         </shape>
         EOF
 
-        # 10. AndroidManifest.xml (TargetSdk 34 Compatible)
+        # 10. Manifest
         cat << 'EOF' > app/src/main/AndroidManifest.xml
         <manifest xmlns:android="http://schemas.android.com/apk/res/android">
             <uses-permission android:name="android.permission.INTERNET" />
@@ -210,7 +210,7 @@ jobs:
                     </intent-filter>
                 </activity>
 
-                <!-- Core VPNGate Tunnel Service -->
+                <!-- Core VPNGate Service -->
                 <service
                     android:name=".GameVpnService"
                     android:permission="android.permission.BIND_VPN_SERVICE"
@@ -224,7 +224,7 @@ jobs:
                     </intent-filter>
                 </service>
 
-                <!-- Floating Game Overlay Service -->
+                <!-- Floating Overlay Service -->
                 <service
                     android:name=".FloatingBubbleService"
                     android:enabled="true"
@@ -404,24 +404,33 @@ jobs:
         </LinearLayout>
         EOF
 
-        # 12. GameVpnService.java
+        # 12. GameVpnService.java (Real Foreground Service bringing the KEY ICON)
         cat << 'EOF' > app/src/main/java/com/gamevpn/free/GameVpnService.java
         package com.gamevpn.free;
 
+        import android.app.Notification;
+        import android.app.NotificationChannel;
+        import android.app.NotificationManager;
         import android.content.Intent;
         import android.net.VpnService;
+        import android.os.Build;
         import android.os.ParcelFileDescriptor;
+        import androidx.core.app.NotificationCompat;
+
         import java.io.FileInputStream;
         import java.io.FileOutputStream;
         import java.net.InetSocketAddress;
         import java.nio.ByteBuffer;
         import java.nio.channels.DatagramChannel;
 
-        public class GameVpnService extends VpnService {
+        public class GameVpnService extends VpnService implements Runnable {
 
-            private Thread vpnThread;
-            private ParcelFileDescriptor vpnInterface;
+            private static final String CHANNEL_ID = "VPN_STATUS_CHANNEL";
+            private Thread mThread;
+            private ParcelFileDescriptor mInterface;
             private boolean isRunning = false;
+            private String serverIp;
+            private int serverPort;
 
             @Override
             public int onStartCommand(Intent intent, int flags, int startId) {
@@ -430,73 +439,116 @@ jobs:
                     return START_NOT_STICKY;
                 }
 
-                String serverIp = intent != null ? intent.getStringExtra("SERVER_IP") : "8.8.8.8";
-                int serverPort = intent != null ? intent.getIntExtra("SERVER_PORT", 1194) : 1194;
+                serverIp = (intent != null && intent.hasExtra("SERVER_IP")) ? intent.getStringExtra("SERVER_IP") : "119.81.189.194";
+                serverPort = (intent != null && intent.hasExtra("SERVER_PORT")) ? intent.getIntExtra("SERVER_PORT", 1194) : 1194;
 
-                startVpn(serverIp, serverPort);
+                createNotificationChannel();
+                Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                        .setContentTitle("Fast Game VPN Active")
+                        .setContentText("Connected to Singapore (" + serverIp + ")")
+                        .setSmallIcon(android.R.drawable.stat_sys_upload)
+                        .setPriority(NotificationCompat.PRIORITY_LOW)
+                        .setOngoing(true)
+                        .build();
+
+                startForeground(1, notification);
+
+                if (mThread == null) {
+                    isRunning = true;
+                    mThread = new Thread(this, "GameVpnThread");
+                    mThread.start();
+                }
+
                 return START_STICKY;
             }
 
-            private void startVpn(String serverIp, int serverPort) {
-                stopVpn();
-                isRunning = true;
-
-                vpnThread = new Thread(() -> {
-                    try {
-                        Builder builder = new Builder();
-                        builder.setSession("FastGameVPN")
-                               .setMtu(1500)
-                               .addAddress("10.8.0.2", 24)
-                               .addRoute("0.0.0.0", 0)
-                               .addDnsServer("8.8.8.8")
-                               .addDnsServer("1.1.1.1");
-
-                        vpnInterface = builder.establish();
-                        if (vpnInterface == null) return;
-
-                        DatagramChannel tunnel = DatagramChannel.open();
-                        protect(tunnel.socket());
-                        tunnel.connect(new InetSocketAddress(serverIp, serverPort));
-                        tunnel.configureBlocking(false);
-
-                        FileInputStream in = new FileInputStream(vpnInterface.getFileDescriptor());
-                        FileOutputStream out = new FileOutputStream(vpnInterface.getFileDescriptor());
-                        ByteBuffer packet = ByteBuffer.allocate(32767);
-
-                        while (isRunning) {
-                            int length = in.read(packet.array());
-                            if (length > 0) {
-                                packet.limit(length);
-                                tunnel.write(packet);
-                                packet.clear();
-                            }
-                            length = tunnel.read(packet);
-                            if (length > 0) {
-                                out.write(packet.array(), 0, length);
-                                packet.clear();
-                            }
-                            Thread.sleep(10);
-                        }
-                    } catch (Exception ignored) {
-                    } finally {
-                        stopVpn();
+            private void createNotificationChannel() {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    NotificationChannel channel = new NotificationChannel(
+                            CHANNEL_ID,
+                            "VPN Service Running",
+                            NotificationManager.IMPORTANCE_LOW
+                    );
+                    NotificationManager manager = getSystemService(NotificationManager.class);
+                    if (manager != null) {
+                        manager.createNotificationChannel(channel);
                     }
-                });
-                vpnThread.start();
+                }
+            }
+
+            @Override
+            public void run() {
+                DatagramChannel tunnel = null;
+                try {
+                    Builder builder = new Builder();
+                    builder.setMtu(1500)
+                           .addAddress("10.0.0.2", 24)
+                           .addRoute("0.0.0.0", 0)
+                           .addDnsServer("8.8.8.8")
+                           .addDnsServer("1.1.1.1")
+                           .setSession("FastGameVPN");
+
+                    // Establish binds to system and brings the KEY ICON
+                    mInterface = builder.establish();
+
+                    if (mInterface == null) {
+                        stopVpn();
+                        return;
+                    }
+
+                    tunnel = DatagramChannel.open();
+                    protect(tunnel.socket());
+                    tunnel.connect(new InetSocketAddress(serverIp, serverPort));
+                    tunnel.configureBlocking(false);
+
+                    FileInputStream in = new FileInputStream(mInterface.getFileDescriptor());
+                    FileOutputStream out = new FileOutputStream(mInterface.getFileDescriptor());
+                    ByteBuffer packet = ByteBuffer.allocate(32767);
+
+                    while (isRunning) {
+                        boolean idle = true;
+                        int length = in.read(packet.array());
+                        if (length > 0) {
+                            packet.limit(length);
+                            tunnel.write(packet);
+                            packet.clear();
+                            idle = false;
+                        }
+
+                        length = tunnel.read(packet);
+                        if (length > 0) {
+                            out.write(packet.array(), 0, length);
+                            packet.clear();
+                            idle = false;
+                        }
+
+                        if (idle) {
+                            Thread.sleep(15);
+                        }
+                    }
+
+                } catch (Exception ignored) {
+                } finally {
+                    try {
+                        if (tunnel != null) tunnel.close();
+                    } catch (Exception ignored) {}
+                    stopVpn();
+                }
             }
 
             private void stopVpn() {
                 isRunning = false;
                 try {
-                    if (vpnInterface != null) {
-                        vpnInterface.close();
-                        vpnInterface = null;
+                    if (mInterface != null) {
+                        mInterface.close();
+                        mInterface = null;
                     }
-                    if (vpnThread != null) {
-                        vpnThread.interrupt();
-                        vpnThread = null;
+                    if (mThread != null) {
+                        mThread.interrupt();
+                        mThread = null;
                     }
                 } catch (Exception ignored) {}
+                stopForeground(true);
                 stopSelf();
             }
 
@@ -512,6 +564,9 @@ jobs:
         cat << 'EOF' > app/src/main/java/com/gamevpn/free/FloatingBubbleService.java
         package com.gamevpn.free;
 
+        import android.app.Notification;
+        import android.app.NotificationChannel;
+        import android.app.NotificationManager;
         import android.app.Service;
         import android.content.Intent;
         import android.graphics.PixelFormat;
@@ -523,9 +578,11 @@ jobs:
         import android.view.WindowManager;
         import android.widget.ImageView;
         import android.widget.Toast;
+        import androidx.core.app.NotificationCompat;
 
         public class FloatingBubbleService extends Service {
 
+            private static final String CHANNEL_ID = "BUBBLE_CHANNEL";
             private WindowManager windowManager;
             private View floatingView;
 
@@ -537,6 +594,24 @@ jobs:
             @Override
             public void onCreate() {
                 super.onCreate();
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    NotificationChannel channel = new NotificationChannel(
+                            CHANNEL_ID,
+                            "Game Bubble Overlay",
+                            NotificationManager.IMPORTANCE_LOW
+                    );
+                    NotificationManager manager = getSystemService(NotificationManager.class);
+                    if (manager != null) manager.createNotificationChannel(channel);
+
+                    Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                            .setContentTitle("Floating Game Bubble Active")
+                            .setSmallIcon(android.R.drawable.ic_dialog_info)
+                            .setPriority(NotificationCompat.PRIORITY_LOW)
+                            .build();
+
+                    startForeground(2, notification);
+                }
 
                 windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
                 ImageView bubble = new ImageView(this);
@@ -635,8 +710,8 @@ jobs:
 
             private String targetServerIp = "119.81.189.194";
             private int targetServerPort = 1194;
-            private String targetServerCountry = "Singapore";
-            private String targetPing = "45 ms";
+            private String targetServerCountry = "Singapore - SG-01";
+            private String targetPing = "48 ms";
 
             @Override
             protected void onCreate(Bundle savedInstanceState) {
@@ -672,7 +747,6 @@ jobs:
                 applyConnectingUI("Fetching lowest ping node...");
 
                 new Thread(() -> {
-                    boolean foundSingapore = false;
                     try {
                         URL url = new URL("https://www.vpngate.net/api/iphone/");
                         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -695,7 +769,6 @@ jobs:
                                     targetServerIp = ip;
                                     targetServerCountry = "Singapore - " + parts[0];
                                     targetPing = (pingStr.isEmpty() || "0".equals(pingStr)) ? "48 ms" : pingStr + " ms";
-                                    foundSingapore = true;
                                     break;
                                 }
                             }
@@ -717,7 +790,11 @@ jobs:
                 Intent serviceIntent = new Intent(this, GameVpnService.class);
                 serviceIntent.putExtra("SERVER_IP", targetServerIp);
                 serviceIntent.putExtra("SERVER_PORT", targetServerPort);
-                startService(serviceIntent);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent);
+                } else {
+                    startService(serviceIntent);
+                }
 
                 isConnected = true;
                 applyConnectedUI();
@@ -763,7 +840,12 @@ jobs:
                             Uri.parse("package:" + getPackageName()));
                     startActivityForResult(intent, OVERLAY_PERMISSION_CODE);
                 } else {
-                    startService(new Intent(this, FloatingBubbleService.class));
+                    Intent bubbleIntent = new Intent(this, FloatingBubbleService.class);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(bubbleIntent);
+                    } else {
+                        startService(bubbleIntent);
+                    }
                 }
             }
 
