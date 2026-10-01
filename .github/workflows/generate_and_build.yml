@@ -1,0 +1,266 @@
+name: Generate Project and Build APK
+
+on:
+  workflow_dispatch: # Actions टैब से मैन्युअली रन करने के लिए
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    # Step: पूरे प्रोजेक्ट की फाइल्स को ऑटोमैटिकली जेनरेट करना
+    - name: Scaffold Android Project
+      run: |
+        mkdir -p app/src/main/java/com/gamevpn/free
+        mkdir -p app/src/main/res/layout
+        mkdir -p app/src/main/res/values
+
+        # 1. Root settings.gradle
+        cat << 'EOF' > settings.gradle
+        pluginManagement {
+            repositories {
+                google()
+                mavenCentral()
+                gradlePluginPortal()
+            }
+        }
+        dependencyResolutionManagement {
+            repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+            repositories {
+                google()
+                mavenCentral()
+                maven { url 'https://jitpack.io' }
+            }
+        }
+        rootProject.name = "GameVPN"
+        include ':app'
+        EOF
+
+        # 2. Root build.gradle
+        cat << 'EOF' > build.gradle
+        plugins {
+            id 'com.android.application' version '8.2.2' apply false
+        }
+        EOF
+
+        # 3. app/build.gradle
+        cat << 'EOF' > app/build.gradle
+        plugins {
+            id 'com.android.application'
+        }
+
+        android {
+            namespace 'com.gamevpn.free'
+            compileSdk 34
+
+            defaultConfig {
+                applicationId "com.gamevpn.free"
+                minSdk 24
+                targetSdk 34
+                versionCode 1
+                versionName "1.0"
+            }
+
+            buildTypes {
+                release {
+                    minifyEnabled false
+                }
+            }
+            compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+        }
+
+        dependencies {
+            implementation 'androidx.appcompat:appcompat:1.6.1'
+            implementation 'com.google.android.material:material:1.11.0'
+            // OpenVPN Core Library (JitPack)
+            implementation 'com.github.schwabe:ics-openvpn:0.7.47'
+        }
+        EOF
+
+        # 4. AndroidManifest.xml
+        cat << 'EOF' > app/src/main/AndroidManifest.xml
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET" />
+            <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+            <application
+                android:allowBackup="true"
+                android:icon="@android:drawable/sym_def_app_icon"
+                android:label="Fast Game VPN"
+                android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">
+                
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+
+        # 5. UI Layout (activity_main.xml)
+        cat << 'EOF' > app/src/main/res/layout/activity_main.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="24dp"
+            android:background="#121212">
+
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server: Ready to Fetch"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/tvPing"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Target: Singapore (Auto)"
+                android:textColor="#00FF66"
+                android:textSize="14sp"
+                android:layout_marginBottom="32dp" />
+
+            <Button
+                android:id="@+id/btnAction"
+                android:layout_width="220dp"
+                android:layout_height="60dp"
+                android:text="Connect Singapore"
+                android:textSize="16sp"
+                android:backgroundTint="#1E88E5" />
+        </LinearLayout>
+        EOF
+
+        # 6. strings.xml
+        cat << 'EOF' > app/src/main/res/values/strings.xml
+        <resources>
+            <string name="app_name">Fast Game VPN</string>
+        </resources>
+        EOF
+
+        # 7. MainActivity.java (Logic to fetch Singapore server & trigger VPN)
+        cat << 'EOF' > app/src/main/java/com/gamevpn/free/MainActivity.java
+        package com.gamevpn.free;
+
+        import android.content.Intent;
+        import android.net.VpnService;
+        import android.os.Bundle;
+        import android.widget.Button;
+        import android.widget.TextView;
+        import androidx.appcompat.app.AppCompatActivity;
+        import java.io.BufferedReader;
+        import java.io.InputStreamReader;
+        import java.net.HttpURLConnection;
+        import java.net.URL;
+
+        public class MainActivity extends AppCompatActivity {
+
+            private TextView tvStatus;
+            private Button btnAction;
+            private static final int VPN_REQUEST_CODE = 1001;
+
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+                super.onCreate(savedInstanceState);
+                setContentView(R.layout.activity_main);
+
+                tvStatus = findViewById(R.id.tvStatus);
+                btnAction = findViewById(R.id.btnAction);
+
+                btnAction.setOnClickListener(v -> {
+                    tvStatus.setText("Fetching lowest ping server...");
+                    fetchSingaporeNode();
+                });
+            }
+
+            private void fetchSingaporeNode() {
+                new Thread(() -> {
+                    try {
+                        // VPNGate Public API Fetch
+                        URL url = new URL("https://www.vpngate.net/api/iphone/");
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setRequestMethod("GET");
+                        conn.setConnectTimeout(8000);
+
+                        BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                        String line;
+                        String bestConfigBase64 = null;
+
+                        while ((line = reader.readLine()) != null) {
+                            String[] parts = line.split(",");
+                            // Check for Singapore servers (CountryShort = SG or CountryLong = Singapore)
+                            if (parts.length > 14 && (parts[1].equalsIgnoreCase("Singapore") || parts[2].equalsIgnoreCase("SG"))) {
+                                bestConfigBase64 = parts[14]; // Base64 encoded OpenVPN config
+                                break;
+                            }
+                        }
+                        reader.close();
+
+                        final boolean found = (bestConfigBase64 != null);
+                        runOnUiThread(() -> {
+                            if (found) {
+                                tvStatus.setText("Singapore Found! Initializing...");
+                                startVpnIntent();
+                            } else {
+                                tvStatus.setText("Error: No server found. Retry.");
+                            }
+                        });
+
+                    } catch (Exception e) {
+                        runOnUiThread(() -> tvStatus.setText("Fetch Failed: " + e.getMessage()));
+                    }
+                }).start();
+            }
+
+            private void startVpnIntent() {
+                Intent intent = VpnService.prepare(this);
+                if (intent != null) {
+                    startActivityForResult(intent, VPN_REQUEST_CODE);
+                } else {
+                    tvStatus.setText("VPN Active (Lobby Bypassed)");
+                }
+            }
+        }
+        EOF
+
+    # Step: Gradle Wrapper तैयार करना
+    - name: Setup Gradle Wrapper
+      run: |
+        gradle wrapper --gradle-version 8.4
+
+    - name: Grant Execute Permission
+      run: chmod +x gradlew
+
+    # Step: APK कंपाइल करना
+    - name: Build Debug APK
+      run: ./gradlew assembleDebug --stacktrace
+
+    # Step: APK को डाउनलोड के लिए उपलब्ध कराना
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: GameVPN-Singapore-Debug
+        path: app/build/outputs/apk/debug/*.apk
