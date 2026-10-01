@@ -1,4 +1,4 @@
-name: Generate Project and Build APK
+name: Build Game Recorder APK
 
 on:
   workflow_dispatch:
@@ -19,34 +19,18 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Scaffold Foreign IP Working VPN
+    - name: Set up Gradle 8.4
+      uses: gradle/actions/setup-gradle@v4
+      with:
+        gradle-version: '8.4'
+
+    - name: Generate project files
       run: |
-        mkdir -p app/src/main/java/com/gamevpn/free
-        mkdir -p app/src/main/res/layout
-        mkdir -p app/src/main/res/values
-        mkdir -p app/src/main/res/drawable
-        mkdir -p gradle/wrapper
-
-        # 1. Gradle Wrapper
-        cat << 'EOF' > gradle/wrapper/gradle-wrapper.properties
-        distributionBase=GRADLE_USER_HOME
-        distributionPath=wrapper/dists
-        distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip
-        networkTimeout=10000
-        validateDistributionUrl=true
-        zipStoreBase=GRADLE_USER_HOME
-        zipStorePath=wrapper/dists
-        EOF
-
-        # 2. Properties
         cat << 'EOF' > gradle.properties
-        android.useAndroidX=true
-        android.enableJetifier=true
-        android.nonTransitiveRClass=true
         org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        android.nonTransitiveRClass=true
         EOF
 
-        # 3. settings.gradle
         cat << 'EOF' > settings.gradle
         pluginManagement {
             repositories {
@@ -62,41 +46,40 @@ jobs:
                 mavenCentral()
             }
         }
-        rootProject.name = "GameVPN"
+        rootProject.name = "GameRecorder"
         include ':app'
         EOF
 
-        # 4. Root build.gradle
         cat << 'EOF' > build.gradle
         plugins {
             id 'com.android.application' version '8.2.2' apply false
         }
         EOF
 
-        # 5. app/build.gradle
+        mkdir -p app
         cat << 'EOF' > app/build.gradle
         plugins {
             id 'com.android.application'
         }
 
         android {
-            namespace 'com.gamevpn.free'
+            namespace 'com.gamerec.lite'
             compileSdk 34
 
             defaultConfig {
-                applicationId "com.gamevpn.free"
-                minSdk 24
+                applicationId "com.gamerec.lite"
+                minSdk 29
                 targetSdk 34
-                versionCode 8
-                versionName "8.0"
+                versionCode 1
+                versionName "1.0"
             }
 
             buildTypes {
                 release {
-                    minifyEnabled false
-                }
-                debug {
-                    minifyEnabled false
+                    minifyEnabled true
+                    shrinkResources true
+                    proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+                    signingConfig signingConfigs.debug
                 }
             }
 
@@ -110,97 +93,39 @@ jobs:
                 checkReleaseBuilds false
             }
         }
-
-        dependencies {
-            implementation 'androidx.appcompat:appcompat:1.6.1'
-            implementation 'com.google.android.material:material:1.11.0'
-            implementation 'androidx.cardview:cardview:1.0.0'
-        }
         EOF
 
-        # 6. colors.xml
-        cat << 'EOF' > app/src/main/res/values/colors.xml
-        <?xml version="1.0" encoding="utf-8"?>
-        <resources>
-            <color name="bg_main">#0B0E14</color>
-            <color name="card_bg">#161B26</color>
-            <color name="neon_blue">#00E5FF</color>
-            <color name="neon_green">#00FF66</color>
-            <color name="neon_yellow">#FFD600</color>
-            <color name="neon_red">#FF1744</color>
-            <color name="text_muted">#7A889B</color>
-            <color name="text_white">#F0F4F8</color>
-            <color name="divider_line">#222C3D</color>
-        </resources>
-        EOF
-
-        # 7. strings.xml
+        mkdir -p app/src/main/res/values
         cat << 'EOF' > app/src/main/res/values/strings.xml
         <resources>
-            <string name="app_name">Fast Game VPN</string>
+            <string name="app_name">Game Recorder</string>
         </resources>
         EOF
 
-        # 8. themes.xml
+        mkdir -p app/src/main/res/values
         cat << 'EOF' > app/src/main/res/values/themes.xml
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
-            <style name="Theme.FastGameVPN" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-                <item name="android:statusBarColor">@color/bg_main</item>
-                <item name="android:navigationBarColor">@color/bg_main</item>
-            </style>
+            <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar" />
         </resources>
         EOF
 
-        # 9. Drawables
-        cat << 'EOF' > app/src/main/res/drawable/bg_power_disconnected.xml
-        <?xml version="1.0" encoding="utf-8"?>
-        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-            <solid android:color="#1A2130" />
-            <stroke android:width="4dp" android:color="@color/neon_blue" />
-        </shape>
-        EOF
-
-        cat << 'EOF' > app/src/main/res/drawable/bg_power_connecting.xml
-        <?xml version="1.0" encoding="utf-8"?>
-        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-            <solid android:color="#332B00" />
-            <stroke android:width="4dp" android:color="@color/neon_yellow" />
-        </shape>
-        EOF
-
-        cat << 'EOF' > app/src/main/res/drawable/bg_power_connected.xml
-        <?xml version="1.0" encoding="utf-8"?>
-        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-            <solid android:color="#003820" />
-            <stroke android:width="4dp" android:color="@color/neon_green" />
-        </shape>
-        EOF
-
-        cat << 'EOF' > app/src/main/res/drawable/bg_floating_bubble.xml
-        <?xml version="1.0" encoding="utf-8"?>
-        <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-            <solid android:color="#00E5FF" />
-            <stroke android:width="2dp" android:color="#FFFFFF" />
-        </shape>
-        EOF
-
-        # 10. AndroidManifest.xml (TargetSdk 34 Compliant)
+        mkdir -p app/src/main
         cat << 'EOF' > app/src/main/AndroidManifest.xml
+        <?xml version="1.0" encoding="utf-8"?>
         <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-            <uses-permission android:name="android.permission.INTERNET" />
-            <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-            <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
-            <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+            <uses-permission android:name="android.permission.RECORD_AUDIO" />
             <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+            <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
             <application
-                android:allowBackup="true"
-                android:icon="@android:drawable/sym_def_app_icon"
+                android:allowBackup="false"
+                android:icon="@android:drawable/ic_menu_camera"
                 android:label="@string/app_name"
-                android:theme="@style/Theme.FastGameVPN">
-                
+                android:theme="@style/AppTheme">
+
                 <activity
                     android:name=".MainActivity"
                     android:exported="true">
@@ -211,365 +136,189 @@ jobs:
                 </activity>
 
                 <service
-                    android:name=".GameVpnService"
-                    android:permission="android.permission.BIND_VPN_SERVICE"
+                    android:name=".RecorderService"
                     android:exported="false"
-                    android:foregroundServiceType="specialUse">
-                    <property
-                        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                        android:value="Game Tunnel Core" />
-                    <intent-filter>
-                        <action android:name="android.net.VpnService" />
-                    </intent-filter>
-                </service>
-
-                <service
-                    android:name=".FloatingBubbleService"
-                    android:enabled="true"
-                    android:exported="false"
-                    android:foregroundServiceType="specialUse">
-                    <property
-                        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                        android:value="Game Overlay Bubble" />
-                </service>
+                    android:foregroundServiceType="mediaProjection|microphone" />
             </application>
         </manifest>
         EOF
 
-        # 11. Layout (activity_main.xml)
-        cat << 'EOF' > app/src/main/res/layout/activity_main.xml
-        <?xml version="1.0" encoding="utf-8"?>
-        <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-            xmlns:app="http://schemas.android.com/apk/res-auto"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:background="@color/bg_main"
-            android:padding="20dp"
-            android:gravity="center_horizontal">
+        mkdir -p app/src/main/java/com/gamerec/lite
+        cat << 'EOF' > app/src/main/java/com/gamerec/lite/MainActivity.java
+        package com.gamerec.lite;
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="FAST GAME VPN"
-                android:textColor="@color/neon_blue"
-                android:textSize="22sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.15"
-                android:layout_marginTop="16dp"
-                android:layout_marginBottom="24dp" />
-
-            <androidx.cardview.widget.CardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="6dp"
-                app:cardBackgroundColor="@color/card_bg"
-                android:layout_marginBottom="32dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <TextView
-                            android:id="@+id/tvSelectedServer"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Singapore - SG Ultra"
-                            android:textColor="@color/text_white"
-                            android:textSize="17sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/tvLivePing"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="-- ms"
-                            android:textColor="@color/neon_green"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/tvProtocolDetails"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Route: Foreign Node (Bypasses India Block)"
-                        android:textColor="@color/text_muted"
-                        android:textSize="12sp"
-                        android:layout_marginTop="6dp" />
-                </LinearLayout>
-            </androidx.cardview.widget.CardView>
-
-            <RelativeLayout
-                android:id="@+id/btnPower"
-                android:layout_width="160dp"
-                android:layout_height="160dp"
-                android:background="@drawable/bg_power_disconnected"
-                android:gravity="center"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginBottom="36dp">
-
-                <TextView
-                    android:id="@+id/tvPowerAction"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="TAP TO\nCONNECT"
-                    android:textColor="@color/neon_blue"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:textAlignment="center"
-                    android:lineSpacingExtra="4dp" />
-            </RelativeLayout>
-
-            <androidx.cardview.widget.CardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="4dp"
-                app:cardBackgroundColor="@color/card_bg"
-                android:layout_marginBottom="24dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="TUNNEL SCOPE"
-                        android:textColor="@color/neon_blue"
-                        android:textSize="11sp"
-                        android:textStyle="bold"
-                        android:letterSpacing="0.1" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Full Device Tunnel (All Apps &amp; Games)"
-                        android:textColor="@color/text_white"
-                        android:textSize="15sp"
-                        android:layout_marginTop="4dp" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Foreign IP Verified | Real Working Internet"
-                        android:textColor="@color/text_muted"
-                        android:textSize="12sp"
-                        android:layout_marginTop="2dp" />
-
-                    <View
-                        android:layout_width="match_parent"
-                        android:layout_height="1dp"
-                        android:background="@color/divider_line"
-                        android:layout_marginVertical="10dp" />
-
-                    <TextView
-                        android:id="@+id/tvLobbyStatus"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Status: Ready to Connect"
-                        android:textColor="@color/text_muted"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-            </androidx.cardview.widget.CardView>
-
-            <Button
-                android:id="@+id/btnFloatingToggle"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:text="Enable Floating Game Bubble"
-                android:textAllCaps="false"
-                android:textColor="@color/bg_main"
-                android:textStyle="bold"
-                android:backgroundTint="@color/neon_blue"
-                app:cornerRadius="12dp" />
-
-        </LinearLayout>
-        EOF
-
-        # 12. GameVpnService.java (DNS & Tunnel Engine)
-        cat << 'EOF' > app/src/main/java/com/gamevpn/free/GameVpnService.java
-        package com.gamevpn.free;
-
-        import android.app.Notification;
-        import android.app.NotificationChannel;
-        import android.app.NotificationManager;
+        import android.Manifest;
+        import android.app.Activity;
         import android.content.Intent;
-        import android.net.VpnService;
+        import android.content.pm.PackageManager;
+        import android.media.projection.MediaProjectionManager;
         import android.os.Build;
-        import android.os.ParcelFileDescriptor;
-        import androidx.core.app.NotificationCompat;
+        import android.os.Bundle;
+        import android.widget.ArrayAdapter;
+        import android.widget.Button;
+        import android.widget.LinearLayout;
+        import android.widget.ScrollView;
+        import android.widget.Spinner;
+        import android.widget.TextView;
+        import android.widget.Toast;
 
-        import java.io.FileInputStream;
-        import java.io.FileOutputStream;
-        import java.net.DatagramPacket;
-        import java.net.DatagramSocket;
-        import java.net.InetAddress;
-        import java.nio.ByteBuffer;
+        import java.util.ArrayList;
+        import java.util.List;
 
-        public class GameVpnService extends VpnService implements Runnable {
+        public class MainActivity extends Activity {
 
-            private static final String CHANNEL_ID = "VPN_STATUS_CHANNEL";
-            private Thread mThread;
-            private ParcelFileDescriptor mInterface;
-            private boolean isRunning = false;
-            private String serverIp = "139.59.227.182";
+            private static final int REQ_PERM = 1;
+            private static final int REQ_CAPTURE = 2;
 
-            @Override
-            public int onStartCommand(Intent intent, int flags, int startId) {
-                if (intent != null && "STOP".equals(intent.getAction())) {
-                    stopVpn();
-                    return START_NOT_STICKY;
-                }
+            private final String[] resLabels = {"480p", "720p", "1080p"};
+            private final int[] resValues = {480, 720, 1080};
+            private final String[] fpsLabels = {"24 fps", "30 fps", "60 fps"};
+            private final int[] fpsValues = {24, 30, 60};
+            private final String[] bitLabels = {"2 Mbps", "4 Mbps", "8 Mbps", "12 Mbps", "16 Mbps"};
+            private final int[] bitValues = {2, 4, 8, 12, 16};
+            private final String[] audioLabels = {"Device audio", "Device audio + Microphone"};
+            private final String[] oriLabels = {"Landscape", "Portrait"};
 
-                if (intent != null && intent.hasExtra("SERVER_IP")) {
-                    serverIp = intent.getStringExtra("SERVER_IP");
-                }
-
-                createNotificationChannel();
-                Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                        .setContentTitle("Fast Game VPN Active")
-                        .setContentText("Connected to Singapore Edge (" + serverIp + ")")
-                        .setSmallIcon(android.R.drawable.stat_sys_upload)
-                        .setPriority(NotificationCompat.PRIORITY_LOW)
-                        .setOngoing(true)
-                        .build();
-
-                startForeground(1, notification);
-
-                if (mThread == null) {
-                    isRunning = true;
-                    mThread = new Thread(this, "GameVpnThread");
-                    mThread.start();
-                }
-
-                return START_STICKY;
-            }
-
-            private void createNotificationChannel() {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    NotificationChannel channel = new NotificationChannel(
-                            CHANNEL_ID,
-                            "VPN Service Running",
-                            NotificationManager.IMPORTANCE_LOW
-                    );
-                    NotificationManager manager = getSystemService(NotificationManager.class);
-                    if (manager != null) {
-                        manager.createNotificationChannel(channel);
-                    }
-                }
-            }
+            private Spinner spRes, spFps, spBit, spAudio, spOri;
 
             @Override
-            public void run() {
-                DatagramSocket socket = null;
-                try {
-                    Builder builder = new Builder();
-                    builder.setMtu(1400)
-                           .addAddress("10.1.0.2", 24)
-                           .addDnsServer("1.1.1.1")
-                           .addDnsServer("8.8.8.8")
-                           .addRoute("0.0.0.0", 0)
-                           .setSession("FastGameVPN");
+            protected void onCreate(Bundle savedInstanceState) {
+                super.onCreate(savedInstanceState);
 
-                    mInterface = builder.establish();
-                    if (mInterface == null) {
-                        stopVpn();
-                        return;
-                    }
+                int p = (int) (20 * getResources().getDisplayMetrics().density);
+                LinearLayout root = new LinearLayout(this);
+                root.setOrientation(LinearLayout.VERTICAL);
+                root.setPadding(p, p * 2, p, p);
 
-                    socket = new DatagramSocket();
-                    protect(socket);
+                TextView title = new TextView(this);
+                title.setText("Game Recorder");
+                title.setTextSize(26);
+                root.addView(title);
 
-                    FileInputStream in = new FileInputStream(mInterface.getFileDescriptor());
-                    FileOutputStream out = new FileOutputStream(mInterface.getFileDescriptor());
-                    byte[] packet = new byte[32767];
+                spRes = addSpinner(root, "Resolution", resLabels, 1);
+                spFps = addSpinner(root, "FPS", fpsLabels, 1);
+                spBit = addSpinner(root, "Bitrate", bitLabels, 2);
+                spAudio = addSpinner(root, "Audio", audioLabels, 0);
+                spOri = addSpinner(root, "Orientation", oriLabels, 0);
 
-                    while (isRunning) {
-                        int length = in.read(packet);
-                        if (length > 0) {
-                            // Forward DNS and ping queries to prevent total blackout
-                            if (packet[9] == 17) { // UDP
-                                DatagramPacket outPacket = new DatagramPacket(packet, length, InetAddress.getByName("1.1.1.1"), 53);
-                                try {
-                                    socket.send(outPacket);
-                                } catch (Exception ignored) {}
-                            }
-                        }
-                        Thread.sleep(10);
-                    }
+                Button start = new Button(this);
+                start.setText("Start Recording");
+                start.setOnClickListener(v -> onStartClicked());
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lp.topMargin = p;
+                root.addView(start, lp);
 
-                } catch (Exception ignored) {
-                } finally {
-                    if (socket != null && !socket.isClosed()) socket.close();
-                    stopVpn();
-                }
+                TextView info = new TextView(this);
+                info.setText("Start ke baad app background mein chala jayega. Pause / Resume / Stop & Save notification se karo. Video Movies/GameRec folder mein save hogi.");
+                info.setPadding(0, p, 0, 0);
+                root.addView(info);
+
+                ScrollView sv = new ScrollView(this);
+                sv.addView(root);
+                setContentView(sv);
             }
 
-            private void stopVpn() {
-                isRunning = false;
-                try {
-                    if (mInterface != null) {
-                        mInterface.close();
-                        mInterface = null;
-                    }
-                    if (mThread != null) {
-                        mThread.interrupt();
-                        mThread = null;
-                    }
-                } catch (Exception ignored) {}
-                stopForeground(true);
-                stopSelf();
+            private Spinner addSpinner(LinearLayout root, String label, String[] items, int sel) {
+                TextView tv = new TextView(this);
+                tv.setText(label);
+                tv.setPadding(0, 24, 0, 0);
+                root.addView(tv);
+                Spinner sp = new Spinner(this);
+                sp.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, items));
+                sp.setSelection(sel);
+                root.addView(sp);
+                return sp;
+            }
+
+            private void onStartClicked() {
+                List<String> need = new ArrayList<>();
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    need.add(Manifest.permission.RECORD_AUDIO);
+                }
+                if (Build.VERSION.SDK_INT >= 33
+                        && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                    need.add("android.permission.POST_NOTIFICATIONS");
+                }
+                if (need.isEmpty()) {
+                    startCapture();
+                } else {
+                    requestPermissions(need.toArray(new String[0]), REQ_PERM);
+                }
             }
 
             @Override
-            public void onDestroy() {
-                stopVpn();
-                super.onDestroy();
+            public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+                super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+                if (requestCode == REQ_PERM) {
+                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        startCapture();
+                    } else {
+                        Toast.makeText(this, "Microphone/Audio permission zaroori hai", Toast.LENGTH_LONG).show();
+                    }
+                }
+            }
+
+            private void startCapture() {
+                MediaProjectionManager mpm = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+                startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE);
+            }
+
+            @Override
+            protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                super.onActivityResult(requestCode, resultCode, data);
+                if (requestCode == REQ_CAPTURE) {
+                    if (resultCode == RESULT_OK && data != null) {
+                        Intent i = new Intent(this, RecorderService.class);
+                        i.setAction(RecorderService.ACTION_START);
+                        i.putExtra("code", resultCode);
+                        i.putExtra("data", data);
+                        i.putExtra("res", resValues[spRes.getSelectedItemPosition()]);
+                        i.putExtra("fps", fpsValues[spFps.getSelectedItemPosition()]);
+                        i.putExtra("mbps", bitValues[spBit.getSelectedItemPosition()]);
+                        i.putExtra("mic", spAudio.getSelectedItemPosition() == 1);
+                        i.putExtra("land", spOri.getSelectedItemPosition() == 0);
+                        startForegroundService(i);
+                        moveTaskToBack(true);
+                    } else {
+                        Toast.makeText(this, "Screen capture permission nahi mili", Toast.LENGTH_SHORT).show();
+                    }
+                }
             }
         }
         EOF
 
-        # 13. FloatingBubbleService.java
-        cat << 'EOF' > app/src/main/java/com/gamevpn/free/FloatingBubbleService.java
-        package com.gamevpn.free;
+        mkdir -p app/src/main/java/com/gamerec/lite
+        cat << 'EOF' > app/src/main/java/com/gamerec/lite/RecorderService.java
+        package com.gamerec.lite;
 
         import android.app.Notification;
         import android.app.NotificationChannel;
         import android.app.NotificationManager;
+        import android.app.PendingIntent;
         import android.app.Service;
         import android.content.Intent;
-        import android.graphics.PixelFormat;
-        import android.os.Build;
+        import android.content.pm.ServiceInfo;
+        import android.graphics.drawable.Icon;
+        import android.media.projection.MediaProjection;
+        import android.media.projection.MediaProjectionManager;
+        import android.net.Uri;
         import android.os.IBinder;
-        import android.view.Gravity;
-        import android.view.MotionEvent;
-        import android.view.View;
-        import android.view.WindowManager;
-        import android.widget.ImageView;
         import android.widget.Toast;
-        import androidx.core.app.NotificationCompat;
 
-        public class FloatingBubbleService extends Service {
+        public class RecorderService extends Service {
 
-            private static final String CHANNEL_ID = "BUBBLE_CHANNEL";
-            private WindowManager windowManager;
-            private View floatingView;
+            public static final String ACTION_START = "com.gamerec.lite.START";
+            public static final String ACTION_PAUSE = "com.gamerec.lite.PAUSE";
+            public static final String ACTION_RESUME = "com.gamerec.lite.RESUME";
+            public static final String ACTION_STOP = "com.gamerec.lite.STOP";
+
+            private static final String CHANNEL_ID = "rec_channel";
+            private static final int NOTIF_ID = 1;
+            private static final int SAVED_ID = 2;
+
+            private Recorder rec;
+            private boolean paused = false;
 
             @Override
             public IBinder onBind(Intent intent) {
@@ -577,245 +326,541 @@ jobs:
             }
 
             @Override
-            public void onCreate() {
-                super.onCreate();
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    NotificationChannel channel = new NotificationChannel(
-                            CHANNEL_ID,
-                            "Game Bubble Overlay",
-                            NotificationManager.IMPORTANCE_LOW
-                    );
-                    NotificationManager manager = getSystemService(NotificationManager.class);
-                    if (manager != null) manager.createNotificationChannel(channel);
-
-                    Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                            .setContentTitle("Floating Game Bubble Active")
-                            .setSmallIcon(android.R.drawable.ic_dialog_info)
-                            .setPriority(NotificationCompat.PRIORITY_LOW)
-                            .build();
-
-                    startForeground(2, notification);
+            public int onStartCommand(Intent intent, int flags, int startId) {
+                String action = intent == null ? null : intent.getAction();
+                if (action == null) {
+                    stopSelf();
+                    return START_NOT_STICKY;
                 }
-
-                windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-                ImageView bubble = new ImageView(this);
-                bubble.setImageResource(android.R.drawable.ic_dialog_info);
-                bubble.setBackgroundResource(R.drawable.bg_floating_bubble);
-                bubble.setPadding(20, 20, 20, 20);
-
-                int layoutType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O 
-                        ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY 
-                        : WindowManager.LayoutParams.TYPE_PHONE;
-
-                final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                        140, 140,
-                        layoutType,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                        PixelFormat.TRANSLUCENT);
-
-                params.gravity = Gravity.TOP | Gravity.START;
-                params.x = 0;
-                params.y = 200;
-
-                bubble.setOnTouchListener(new View.OnTouchListener() {
-                    private int initialX, initialY;
-                    private float initialTouchX, initialTouchY;
-
-                    @Override
-                    public boolean onTouch(View v, MotionEvent event) {
-                        switch (event.getAction()) {
-                            case MotionEvent.ACTION_DOWN:
-                                initialX = params.x;
-                                initialY = params.y;
-                                initialTouchX = event.getRawX();
-                                initialTouchY = event.getRawY();
-                                return true;
-                            case MotionEvent.ACTION_MOVE:
-                                params.x = initialX + (int) (event.getRawX() - initialTouchX);
-                                params.y = initialY + (int) (event.getRawY() - initialTouchY);
-                                windowManager.updateViewLayout(bubble, params);
-                                return true;
-                            case MotionEvent.ACTION_UP:
-                                if (Math.abs(event.getRawX() - initialTouchX) < 10 && Math.abs(event.getRawY() - initialTouchY) < 10) {
-                                    Toast.makeText(FloatingBubbleService.this, "Tunnel Mode: Active for All Apps", Toast.LENGTH_SHORT).show();
-                                }
-                                return true;
+                switch (action) {
+                    case ACTION_START:
+                        if (rec == null) startRecording(intent);
+                        break;
+                    case ACTION_PAUSE:
+                        if (rec != null && !paused) {
+                            rec.pause();
+                            paused = true;
+                            updateNotification();
                         }
-                        return false;
+                        break;
+                    case ACTION_RESUME:
+                        if (rec != null && paused) {
+                            rec.resume();
+                            paused = false;
+                            updateNotification();
+                        }
+                        break;
+                    case ACTION_STOP:
+                        stopAndSave();
+                        break;
+                    default:
+                        break;
+                }
+                return START_NOT_STICKY;
+            }
+
+            private void startRecording(Intent intent) {
+                NotificationManager nm = getSystemService(NotificationManager.class);
+                nm.createNotificationChannel(new NotificationChannel(
+                        CHANNEL_ID, "Recording", NotificationManager.IMPORTANCE_LOW));
+
+                boolean mic = intent.getBooleanExtra("mic", false);
+                int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                        | (mic ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0);
+                paused = false;
+                startForeground(NOTIF_ID, buildNotification(), type);
+
+                Recorder r = null;
+                MediaProjection mp = null;
+                try {
+                    MediaProjectionManager mpm = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+                    Intent data = (Intent) intent.getParcelableExtra("data");
+                    mp = mpm.getMediaProjection(intent.getIntExtra("code", 0), data);
+                    r = new Recorder(this, mp,
+                            intent.getIntExtra("res", 720),
+                            intent.getIntExtra("fps", 30),
+                            intent.getIntExtra("mbps", 8) * 1000000,
+                            mic,
+                            intent.getBooleanExtra("land", true),
+                            this::stopAndSave);
+                    r.start();
+                    rec = r;
+                } catch (Exception e) {
+                    if (r != null) {
+                        try { r.stop(); } catch (Exception ignored) { }
+                    } else if (mp != null) {
+                        try { mp.stop(); } catch (Exception ignored) { }
                     }
-                });
-
-                floatingView = bubble;
-                windowManager.addView(floatingView, params);
-            }
-
-            @Override
-            public void onDestroy() {
-                super.onDestroy();
-                if (floatingView != null) windowManager.removeView(floatingView);
-            }
-        }
-        EOF
-
-        # 14. MainActivity.java
-        cat << 'EOF' > app/src/main/java/com/gamevpn/free/MainActivity.java
-        package com.gamevpn.free;
-
-        import android.content.Intent;
-        import android.net.Uri;
-        import android.net.VpnService;
-        import android.os.Build;
-        import android.os.Bundle;
-        import android.provider.Settings;
-        import android.widget.Button;
-        import android.widget.RelativeLayout;
-        import android.widget.TextView;
-        import androidx.appcompat.app.AppCompatActivity;
-        import androidx.core.content.ContextCompat;
-
-        public class MainActivity extends AppCompatActivity {
-
-            private RelativeLayout btnPower;
-            private TextView tvPowerAction;
-            private TextView tvLivePing;
-            private TextView tvLobbyStatus;
-            private TextView tvSelectedServer;
-            private TextView tvProtocolDetails;
-            private Button btnFloatingToggle;
-
-            private boolean isConnected = false;
-            private static final int VPN_REQUEST_CODE = 1001;
-            private static final int OVERLAY_PERMISSION_CODE = 1002;
-
-            private String targetServerIp = "139.59.227.182";
-
-            @Override
-            protected void onCreate(Bundle savedInstanceState) {
-                super.onCreate(savedInstanceState);
-                setContentView(R.layout.activity_main);
-
-                btnPower = findViewById(R.id.btnPower);
-                tvPowerAction = findViewById(R.id.tvPowerAction);
-                tvLivePing = findViewById(R.id.tvLivePing);
-                tvLobbyStatus = findViewById(R.id.tvLobbyStatus);
-                tvSelectedServer = findViewById(R.id.tvSelectedServer);
-                tvProtocolDetails = findViewById(R.id.tvProtocolDetails);
-                btnFloatingToggle = findViewById(R.id.btnFloatingToggle);
-
-                btnPower.setOnClickListener(v -> toggleConnection());
-                btnFloatingToggle.setOnClickListener(v -> toggleFloatingBubble());
-            }
-
-            private void toggleConnection() {
-                if (!isConnected) {
-                    Intent intent = VpnService.prepare(this);
-                    if (intent != null) {
-                        startActivityForResult(intent, VPN_REQUEST_CODE);
-                    } else {
-                        connectForeignTunnel();
-                    }
-                } else {
-                    disconnectTunnel();
+                    Toast.makeText(this, "Recording start nahi hui: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    stopForeground(STOP_FOREGROUND_REMOVE);
+                    stopSelf();
                 }
             }
 
-            private void connectForeignTunnel() {
-                applyConnectingUI("Establishing Foreign Tunnel...");
+            private PendingIntent action(String action, int code) {
+                Intent i = new Intent(this, RecorderService.class).setAction(action);
+                return PendingIntent.getService(this, code, i,
+                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            }
 
+            private Notification buildNotification() {
+                Notification.Action toggle = new Notification.Action.Builder(
+                        Icon.createWithResource(this, paused ? android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause),
+                        paused ? "Resume" : "Pause",
+                        action(paused ? ACTION_RESUME : ACTION_PAUSE, 10)).build();
+                Notification.Action stop = new Notification.Action.Builder(
+                        Icon.createWithResource(this, android.R.drawable.ic_menu_save),
+                        "Stop & Save",
+                        action(ACTION_STOP, 11)).build();
+                return new Notification.Builder(this, CHANNEL_ID)
+                        .setSmallIcon(android.R.drawable.ic_media_play)
+                        .setContentTitle(paused ? "Recording paused" : "Recording...")
+                        .setContentText("Pause / Resume / Stop & Save")
+                        .setOngoing(true)
+                        .setOnlyAlertOnce(true)
+                        .addAction(toggle)
+                        .addAction(stop)
+                        .build();
+            }
+
+            private void updateNotification() {
+                getSystemService(NotificationManager.class).notify(NOTIF_ID, buildNotification());
+            }
+
+            private void stopAndSave() {
+                final Recorder r = rec;
+                rec = null;
+                if (r == null) {
+                    stopSelf();
+                    return;
+                }
                 new Thread(() -> {
+                    Uri u = null;
                     try {
-                        Thread.sleep(800);
-                    } catch (Exception ignored) {}
-
-                    runOnUiThread(() -> {
-                        Intent serviceIntent = new Intent(this, GameVpnService.class);
-                        serviceIntent.putExtra("SERVER_IP", targetServerIp);
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            startForegroundService(serviceIntent);
-                        } else {
-                            startService(serviceIntent);
-                        }
-
-                        isConnected = true;
-                        applyConnectedUI();
-                    });
+                        u = r.stop();
+                    } catch (Exception ignored) { }
+                    stopForeground(STOP_FOREGROUND_REMOVE);
+                    notifySaved(u);
+                    stopSelf();
                 }).start();
             }
 
-            private void disconnectTunnel() {
-                Intent serviceIntent = new Intent(this, GameVpnService.class);
-                serviceIntent.setAction("STOP");
-                startService(serviceIntent);
-
-                isConnected = false;
-                applyDisconnectedUI();
-            }
-
-            private void applyConnectingUI(String statusMsg) {
-                btnPower.setBackground(ContextCompat.getDrawable(this, R.drawable.bg_power_connecting));
-                tvPowerAction.setText("CONNECTING...");
-                tvPowerAction.setTextColor(ContextCompat.getColor(this, R.color.neon_yellow));
-                tvLobbyStatus.setText("Status: " + statusMsg);
-                tvLobbyStatus.setTextColor(ContextCompat.getColor(this, R.color.neon_yellow));
-            }
-
-            private void applyConnectedUI() {
-                btnPower.setBackground(ContextCompat.getDrawable(this, R.drawable.bg_power_connected));
-                tvPowerAction.setText("CONNECTED\n[ACTIVE]");
-                tvPowerAction.setTextColor(ContextCompat.getColor(this, R.color.neon_green));
-                tvLobbyStatus.setText("Status: Active (Singapore IP Running)");
-                tvLobbyStatus.setTextColor(ContextCompat.getColor(this, R.color.neon_green));
-                tvLivePing.setText("42 ms");
-                tvSelectedServer.setText("Singapore - Direct SG-01");
-                tvProtocolDetails.setText("Foreign IP: " + targetServerIp + " (Unblocked)");
-            }
-
-            private void applyDisconnectedUI() {
-                btnPower.setBackground(ContextCompat.getDrawable(this, R.drawable.bg_power_disconnected));
-                tvPowerAction.setText("TAP TO\nCONNECT");
-                tvPowerAction.setTextColor(ContextCompat.getColor(this, R.color.neon_blue));
-                tvLobbyStatus.setText("Status: Ready to Connect");
-                tvLobbyStatus.setTextColor(ContextCompat.getColor(this, R.color.text_muted));
-                tvLivePing.setText("-- ms");
-            }
-
-            private void toggleFloatingBubble() {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-                    Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:" + getPackageName()));
-                    startActivityForResult(intent, OVERLAY_PERMISSION_CODE);
+            private void notifySaved(Uri uri) {
+                Notification.Builder b = new Notification.Builder(this, CHANNEL_ID)
+                        .setSmallIcon(android.R.drawable.ic_menu_save)
+                        .setAutoCancel(true);
+                if (uri != null) {
+                    Intent view = new Intent(Intent.ACTION_VIEW)
+                            .setDataAndType(uri, "video/mp4")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    b.setContentTitle("Recording saved")
+                            .setContentText("Movies/GameRec (tap to play)")
+                            .setContentIntent(PendingIntent.getActivity(this, 20, view, PendingIntent.FLAG_IMMUTABLE));
                 } else {
-                    Intent bubbleIntent = new Intent(this, FloatingBubbleService.class);
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(bubbleIntent);
-                    } else {
-                        startService(bubbleIntent);
-                    }
+                    b.setContentTitle("Recording save nahi hui");
                 }
-            }
-
-            @Override
-            protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-                super.onActivityResult(requestCode, resultCode, data);
-                if (requestCode == VPN_REQUEST_CODE && resultCode == RESULT_OK) {
-                    connectForeignTunnel();
-                }
+                getSystemService(NotificationManager.class).notify(SAVED_ID, b.build());
             }
         }
         EOF
 
-    - name: Generate Gradle Executable
-      run: gradle wrapper --gradle-version 8.4
+        mkdir -p app/src/main/java/com/gamerec/lite
+        cat << 'EOF' > app/src/main/java/com/gamerec/lite/Recorder.java
+        package com.gamerec.lite;
 
-    - name: Grant Execute Permission
-      run: chmod +x gradlew
+        import android.content.ContentResolver;
+        import android.content.ContentValues;
+        import android.content.Context;
+        import android.hardware.display.DisplayManager;
+        import android.hardware.display.VirtualDisplay;
+        import android.media.AudioAttributes;
+        import android.media.AudioFormat;
+        import android.media.AudioPlaybackCaptureConfiguration;
+        import android.media.AudioRecord;
+        import android.media.MediaCodec;
+        import android.media.MediaCodecInfo;
+        import android.media.MediaFormat;
+        import android.media.MediaMuxer;
+        import android.media.MediaRecorder;
+        import android.media.projection.MediaProjection;
+        import android.net.Uri;
+        import android.os.Bundle;
+        import android.os.Handler;
+        import android.os.Looper;
+        import android.os.ParcelFileDescriptor;
+        import android.provider.MediaStore;
+        import android.util.DisplayMetrics;
+        import android.view.Display;
+        import android.view.Surface;
 
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace
+        import java.nio.ByteBuffer;
+        import java.nio.ByteOrder;
+        import java.text.SimpleDateFormat;
+        import java.util.Date;
+        import java.util.Locale;
+
+        public class Recorder {
+
+            private static final int SR = 44100;
+            private static final int CHUNK = 1024; // audio frames per read
+
+            private final Context ctx;
+            private final MediaProjection mp;
+            private final Runnable onProjectionStopped;
+            private final int w, h, dpi, fps, bitrate;
+            private final boolean mic;
+
+            private MediaCodec vEnc, aEnc;
+            private Surface surface;
+            private VirtualDisplay vd;
+            private MediaMuxer muxer;
+            private AudioRecord apRec, micRec;
+            private ParcelFileDescriptor pfd;
+            private Uri uri;
+            private Thread vThread, aThread;
+            private MediaProjection.Callback cb;
+
+            private volatile boolean running = false;
+            private boolean stopped = false;
+            private volatile boolean paused = false;
+            private volatile boolean needKey = false;
+            private volatile long pausedTotalUs = 0;
+            private long pauseStartUs = 0;
+            private long startUs = 0;
+
+            private final Object lock = new Object();
+            private int vTrack = -1, aTrack = -1;
+            private boolean muxStarted = false;
+            private long lastV = -1, lastA = -1;
+
+            public Recorder(Context ctx, MediaProjection mp, int shortSide, int fps, int bitrate,
+                            boolean mic, boolean landscape, Runnable onProjectionStopped) {
+                this.ctx = ctx;
+                this.mp = mp;
+                this.fps = fps;
+                this.bitrate = bitrate;
+                this.mic = mic;
+                this.onProjectionStopped = onProjectionStopped;
+
+                DisplayMetrics dm = new DisplayMetrics();
+                Display d = ((DisplayManager) ctx.getSystemService(Context.DISPLAY_SERVICE))
+                        .getDisplay(Display.DEFAULT_DISPLAY);
+                d.getRealMetrics(dm);
+                double ratio = (double) Math.max(dm.widthPixels, dm.heightPixels)
+                        / Math.min(dm.widthPixels, dm.heightPixels);
+                int s = align16(shortSide);
+                int l = align16((int) Math.round(shortSide * ratio));
+                this.w = landscape ? l : s;
+                this.h = landscape ? s : l;
+                this.dpi = dm.densityDpi;
+            }
+
+            private static int align16(int v) {
+                return Math.max(16, ((v + 8) / 16) * 16);
+            }
+
+            private static long nowUs() {
+                return System.nanoTime() / 1000L;
+            }
+
+            public void start() throws Exception {
+                // Output file in Movies/GameRec
+                ContentResolver cr = ctx.getContentResolver();
+                ContentValues v = new ContentValues();
+                v.put(MediaStore.Video.Media.DISPLAY_NAME,
+                        "Rec_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".mp4");
+                v.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+                v.put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/GameRec");
+                v.put(MediaStore.Video.Media.IS_PENDING, 1);
+                uri = cr.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, v);
+                if (uri == null) throw new Exception("File create nahi hui");
+                pfd = cr.openFileDescriptor(uri, "rw");
+                muxer = new MediaMuxer(pfd.getFileDescriptor(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+
+                // Video encoder
+                MediaFormat vf = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h);
+                vf.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+                vf.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
+                vf.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
+                vf.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
+                vf.setInteger("max-fps-to-encoder", fps);
+                vf.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 500000L);
+                vEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+                vEnc.configure(vf, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+                surface = vEnc.createInputSurface();
+                vEnc.start();
+
+                // Audio encoder
+                MediaFormat af = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SR, 2);
+                af.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
+                af.setInteger(MediaFormat.KEY_BIT_RATE, 128000);
+                af.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384);
+                aEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC);
+                aEnc.configure(af, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+                aEnc.start();
+
+                // Device audio capture
+                AudioPlaybackCaptureConfiguration cfg = new AudioPlaybackCaptureConfiguration.Builder(mp)
+                        .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                        .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                        .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                        .build();
+                AudioFormat fmt = new AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(SR)
+                        .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
+                        .build();
+                int minSt = AudioRecord.getMinBufferSize(SR, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT);
+                apRec = new AudioRecord.Builder()
+                        .setAudioFormat(fmt)
+                        .setBufferSizeInBytes(Math.max(minSt, CHUNK * 8))
+                        .setAudioPlaybackCaptureConfig(cfg)
+                        .build();
+
+                if (mic) {
+                    int minMono = AudioRecord.getMinBufferSize(SR, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+                    micRec = new AudioRecord(MediaRecorder.AudioSource.MIC, SR,
+                            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                            Math.max(minMono, CHUNK * 4));
+                }
+
+                cb = new MediaProjection.Callback() {
+                    @Override
+                    public void onStop() {
+                        if (onProjectionStopped != null) onProjectionStopped.run();
+                    }
+                };
+                mp.registerCallback(cb, new Handler(Looper.getMainLooper()));
+
+                startUs = nowUs();
+                running = true;
+                apRec.startRecording();
+                if (micRec != null) micRec.startRecording();
+                vd = mp.createVirtualDisplay("GameRec", w, h, dpi,
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, null);
+
+                vThread = new Thread(this::videoLoop, "rec-video");
+                aThread = new Thread(this::audioLoop, "rec-audio");
+                vThread.start();
+                aThread.start();
+            }
+
+            public synchronized void pause() {
+                if (!running || paused) return;
+                pauseStartUs = nowUs();
+                paused = true;
+            }
+
+            public synchronized void resume() {
+                if (!running || !paused) return;
+                pausedTotalUs += nowUs() - pauseStartUs;
+                needKey = true;
+                try {
+                    Bundle b = new Bundle();
+                    b.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0);
+                    vEnc.setParameters(b);
+                } catch (Exception ignored) { }
+                paused = false;
+            }
+
+            private void addTrack(MediaFormat f, boolean video) {
+                synchronized (lock) {
+                    try {
+                        int t = muxer.addTrack(f);
+                        if (video) vTrack = t; else aTrack = t;
+                        if (vTrack >= 0 && aTrack >= 0 && !muxStarted) {
+                            muxer.start();
+                            muxStarted = true;
+                            lock.notifyAll();
+                        }
+                    } catch (Exception ignored) { }
+                    long deadline = System.currentTimeMillis() + 5000;
+                    while (!muxStarted && System.currentTimeMillis() < deadline) {
+                        try { lock.wait(200); } catch (InterruptedException e) { break; }
+                    }
+                }
+            }
+
+            private void write(int track, ByteBuffer buf, MediaCodec.BufferInfo info, long pts, boolean video) {
+                if (pts < 0) pts = 0;
+                synchronized (lock) {
+                    if (!muxStarted) return;
+                    long last = video ? lastV : lastA;
+                    if (pts <= last) pts = last + 1;
+                    if (video) lastV = pts; else lastA = pts;
+                    info.presentationTimeUs = pts;
+                    buf.position(info.offset);
+                    buf.limit(info.offset + info.size);
+                    try {
+                        muxer.writeSampleData(track, buf, info);
+                    } catch (Exception ignored) { }
+                }
+            }
+
+            private void videoLoop() {
+                MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+                boolean eosSent = false;
+                long vBase = Long.MIN_VALUE;
+                try {
+                    while (true) {
+                        if (!running && !eosSent) {
+                            try { vEnc.signalEndOfInputStream(); } catch (Exception ignored) { }
+                            eosSent = true;
+                        }
+                        int idx = vEnc.dequeueOutputBuffer(info, 10000);
+                        if (idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                            addTrack(vEnc.getOutputFormat(), true);
+                        } else if (idx >= 0) {
+                            ByteBuffer buf = vEnc.getOutputBuffer(idx);
+                            boolean eos = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+                            boolean config = (info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
+                            if (!config && info.size > 0 && !paused && buf != null) {
+                                boolean key = (info.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0;
+                                if (needKey && key) needKey = false;
+                                if (!needKey) {
+                                    if (vBase == Long.MIN_VALUE) {
+                                        vBase = info.presentationTimeUs - (nowUs() - startUs);
+                                    }
+                                    long pts = info.presentationTimeUs - vBase - pausedTotalUs;
+                                    write(vTrack, buf, info, pts, true);
+                                }
+                            }
+                            vEnc.releaseOutputBuffer(idx, false);
+                            if (eos) break;
+                        }
+                    }
+                } catch (Exception ignored) { }
+            }
+
+            private void audioLoop() {
+                short[] pb = new short[CHUNK * 2];
+                short[] mb = new short[CHUNK];
+                byte[] bytes = new byte[CHUNK * 4];
+                MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+                long frames = 0;
+                long base = Long.MIN_VALUE;
+                long lastPts = 0;
+                try {
+                    while (running) {
+                        int n = apRec.read(pb, 0, pb.length, AudioRecord.READ_BLOCKING);
+                        int m = 0;
+                        if (micRec != null) {
+                            m = micRec.read(mb, 0, CHUNK, AudioRecord.READ_BLOCKING);
+                        }
+                        if (n <= 0) {
+                            Thread.sleep(5);
+                            continue;
+                        }
+                        if (paused) continue;
+                        if (m > 0) {
+                            int cnt = Math.min(m, n / 2);
+                            for (int i = 0; i < cnt; i++) {
+                                pb[2 * i] = clip(pb[2 * i] + mb[i]);
+                                pb[2 * i + 1] = clip(pb[2 * i + 1] + mb[i]);
+                            }
+                        }
+                        if (base == Long.MIN_VALUE) {
+                            base = (nowUs() - startUs - pausedTotalUs) - (n / 2) * 1000000L / SR;
+                        }
+                        long pts = base + frames * 1000000L / SR;
+                        lastPts = pts;
+                        frames += n / 2;
+
+                        ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().put(pb, 0, n);
+                        int in = aEnc.dequeueInputBuffer(10000);
+                        if (in >= 0) {
+                            ByteBuffer ib = aEnc.getInputBuffer(in);
+                            ib.clear();
+                            ib.put(bytes, 0, n * 2);
+                            aEnc.queueInputBuffer(in, 0, n * 2, pts, 0);
+                        }
+                        drainAudio(info, 0);
+                    }
+
+                    // send end-of-stream
+                    for (int tries = 0; tries < 50; tries++) {
+                        int in = aEnc.dequeueInputBuffer(10000);
+                        if (in >= 0) {
+                            aEnc.queueInputBuffer(in, 0, 0, lastPts + 1000, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                            break;
+                        }
+                        drainAudio(info, 0);
+                    }
+                    long deadline = System.currentTimeMillis() + 3000;
+                    while (System.currentTimeMillis() < deadline) {
+                        if (drainAudio(info, 10000)) break;
+                    }
+                } catch (Exception ignored) { }
+            }
+
+            private static short clip(int v) {
+                if (v > Short.MAX_VALUE) return Short.MAX_VALUE;
+                if (v < Short.MIN_VALUE) return Short.MIN_VALUE;
+                return (short) v;
+            }
+
+            private boolean drainAudio(MediaCodec.BufferInfo info, long timeoutUs) {
+                while (true) {
+                    int idx = aEnc.dequeueOutputBuffer(info, timeoutUs);
+                    if (idx == MediaCodec.INFO_TRY_AGAIN_LATER) return false;
+                    if (idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                        addTrack(aEnc.getOutputFormat(), false);
+                        continue;
+                    }
+                    if (idx < 0) continue;
+                    ByteBuffer buf = aEnc.getOutputBuffer(idx);
+                    boolean eos = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+                    boolean config = (info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
+                    if (!config && info.size > 0 && buf != null) {
+                        write(aTrack, buf, info, info.presentationTimeUs, false);
+                    }
+                    aEnc.releaseOutputBuffer(idx, false);
+                    if (eos) return true;
+                }
+            }
+
+            public Uri stop() {
+                if (stopped) return uri;
+                stopped = true;
+                running = false;
+                try { if (cb != null) mp.unregisterCallback(cb); } catch (Exception ignored) { }
+                try { if (vd != null) vd.release(); } catch (Exception ignored) { }
+                try { if (vThread != null) vThread.join(5000); } catch (Exception ignored) { }
+                try { if (aThread != null) aThread.join(8000); } catch (Exception ignored) { }
+                try { if (apRec != null) { apRec.stop(); apRec.release(); } } catch (Exception ignored) { }
+                try { if (micRec != null) { micRec.stop(); micRec.release(); } } catch (Exception ignored) { }
+                try { if (vEnc != null) { vEnc.stop(); vEnc.release(); } } catch (Exception ignored) { }
+                try { if (aEnc != null) { aEnc.stop(); aEnc.release(); } } catch (Exception ignored) { }
+                try { if (surface != null) surface.release(); } catch (Exception ignored) { }
+                boolean ok = muxStarted;
+                try { if (muxer != null && muxStarted) muxer.stop(); } catch (Exception e) { ok = false; }
+                try { if (muxer != null) muxer.release(); } catch (Exception ignored) { }
+                try { mp.stop(); } catch (Exception ignored) { }
+                try { if (pfd != null) pfd.close(); } catch (Exception ignored) { }
+
+                ContentResolver cr = ctx.getContentResolver();
+                if (uri != null) {
+                    try {
+                        if (ok) {
+                            ContentValues v = new ContentValues();
+                            v.put(MediaStore.Video.Media.IS_PENDING, 0);
+                            cr.update(uri, v, null, null);
+                        } else {
+                            cr.delete(uri, null, null);
+                            uri = null;
+                        }
+                    } catch (Exception ignored) { }
+                }
+                return uri;
+            }
+        }
+        EOF
+
+    - name: Build release APK
+      run: gradle assembleRelease --stacktrace
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: GameVPN-Cyberpunk-Debug
-        path: app/build/outputs/apk/debug/*.apk
+        name: GameRecorder-APK
+        path: app/build/outputs/apk/release/*.apk
