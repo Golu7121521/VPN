@@ -882,11 +882,13 @@ jobs:
         }
         EOF
 
-    - name: Build release APK
-      run: gradle assembleRelease --stacktrace
+        - name: Build release APK and AAB
+      run: gradle assembleRelease bundleRelease --stacktrace
 
-    - name: Upload APK
+    - name: Upload Release Files
       uses: actions/upload-artifact@v4
       with:
-        name: GameRecorder-APK
-        path: app/build/outputs/apk/release/*.apk
+        name: GameRecorder-Release-Files
+        path: |
+          app/build/outputs/apk/release/*.apk
+          app/build/outputs/bundle/release/*.aab
