@@ -114,7 +114,7 @@ jobs:
               <color name="stroke">#E1E4EE</color>
               <color name="muted">#6B7280</color>
               <color name="kw">#7C3AED</color>
-              <color namejwjwjwjwb w="st">#0E8A4F</color>
+              <color name="st">#0E8A4F</color>
               <color name="nu">#D97706</color>
               <color name="cm">#8B93A5</color>
               <color name="ok">#1A9E5C</color>
@@ -426,8 +426,8 @@ jobs:
                                       try {
                                           unzip(http("GET", "/repos/" + j.getString("full_name") + "/zipball").inputStream, dir)
                                           File(dir, ".gab").writeText(j.getString("full_name") + "\n" + j.getString("default_branch"))
-                                          ui { browse(dir, dir) } // Auto open repo after clone
-                                      } catch (e: Exception) { dir.deleteRecursively(); ui { repos() }; throw e }
+                                      } catch (e: Exception) { dir.deleteRecursively(); throw e }
+                                      ui { browse(dir, dir) }
                                   }
                               }
                               c.addView(b); add(l, c)
@@ -444,12 +444,20 @@ jobs:
                   val l = page(repo.name + (if (rel.isEmpty()) "" else "/$rel"), btn("Repos") { repos() })
                   onBack = { if (dir != repo) browse(repo, dir.parentFile!!) else repos() }
                   l.addView(bar(
-                      btn("New file") { ask("File name") { if (it.isNotEmpty()) { 
-                          val newFile = File(dir, it)
-                          newFile.parentFile?.mkdirs() // Create nested folders if any
-                          newFile.createNewFile()
-                          browse(repo, dir) 
-                      } } },
+                      btn("New file") { 
+                          ask("File name") { name -> 
+                              if (name.isNotEmpty()) {
+                                  try {
+                                      val nf = File(dir, name)
+                                      nf.parentFile?.mkdirs()
+                                      nf.createNewFile()
+                                      edit(repo, nf.parentFile ?: dir, nf)
+                                  } catch (e: Exception) {
+                                      alert("Error", e.message ?: "Failed to create file")
+                                  }
+                              } 
+                          } 
+                      },
                       btn("New folder") { ask("Folder name") { if (it.isNotEmpty()) { File(dir, it).mkdirs(); browse(repo, dir) } } },
                       btn("Import") { pickRepo = repo; pickDir = dir; importFile() },
                       btn("Search") { ask("Search files") { if (it.isNotEmpty()) search(repo, it) } },
@@ -680,8 +688,7 @@ jobs:
               fun draw(l: LinearLayout, r: JSONObject, js: JSONArray) {
                   val sv = l.parent as? ScrollView; val y = sv?.scrollY ?: 0
                   l.removeAllViews()
-                  
-                  // Loop Jobs and create separate rounded boxes for each step
+
                   for (k in 0 until js.length()) {
                       val j = js.getJSONObject(k)
                       val id = j.getLong("id")
@@ -697,11 +704,11 @@ jobs:
                               val isFailed = stConcl == "failure"
                               val isCompleted = stStatus == "completed"
                               
-                              // Separate rounded box for each step
+                              // Create a separate boxed item for each step
                               val stepBox = LinearLayout(this).apply {
                                   orientation = LinearLayout.VERTICAL
-                                  background = box(col(R.color.card), col(R.color.stroke), 12) 
-                                  layoutParams = lp(-1, -2).apply { setMargins(dp(2), dp(6), dp(2), dp(6)) }
+                                  background = box(col(R.color.card), col(R.color.stroke), 8)
+                                  layoutParams = lp(-1, -2).apply { bottomMargin = dp(10) }
                                   clipToOutline = true
                               }
                               
@@ -710,7 +717,7 @@ jobs:
                                   setPadding(dp(16), dp(14), dp(16), dp(14))
                               }
                               
-                              // Left Icon: Spinner if running, tick/cross if completed
+                              // Left Icon: Spinner if running, else Circle/Check/Cross
                               if (isRunning) {
                                   stepRow.addView(ProgressBar(this).apply { 
                                       isIndeterminate = true
@@ -724,23 +731,27 @@ jobs:
                                   stepRow.addView(tv("○", 15, true, R.color.muted).apply { setPadding(0, 0, dp(12), 0) })
                               }
                               
-                              // Step name
+                              // Step Name
                               val nameColor = if (isRunning || isFailed) R.color.fg else R.color.muted
                               stepRow.addView(tv(st.getString("name"), 14, isRunning, nameColor).apply { setSingleLine() }, lp(0, -2, 1f))
                               
-                              // Right Status Text (Completed / Failed)
+                              // Right Status Text
                               if (isCompleted) {
-                                  val txt = when(stConcl) { "success" -> "Completed"; "failure" -> "Failed"; "skipped" -> "Skipped"; else -> stConcl }
-                                  val txtColId = if (stConcl == "success") R.color.ok else if (stConcl == "failure") R.color.bad else R.color.muted
-                                  stepRow.addView(tv(txt, 12, true, txtColId))
+                                  if (stConcl == "success") {
+                                      stepRow.addView(tv("Completed", 12, true, R.color.ok))
+                                  } else if (stConcl == "failure") {
+                                      stepRow.addView(tv("Failed", 12, true, R.color.bad))
+                                  } else if (stConcl == "skipped") {
+                                      stepRow.addView(tv("Skipped", 12, false, R.color.muted))
+                                  }
                               }
 
                               stepBox.addView(stepRow)
                               
-                              // Show Live Logs below currently running or failed step
+                              // Live Logs rendering only if running or failed (and not empty)
                               if (isRunning || isFailed) {
-                                  val lg = logMap[id]
-                                  if (!lg.isNullOrEmpty()) {
+                                  val lg = logMap[id] ?: ""
+                                  if (lg.isNotEmpty()) {
                                       stepBox.addView(View(this).apply { setBackgroundColor(col(R.color.stroke)); layoutParams = lp(-1, dp(1)) })
                                       stepBox.addView(tv(lg, 11).apply {
                                           typeface = Typeface.MONOSPACE
@@ -751,15 +762,14 @@ jobs:
                                       })
                                   }
                               }
-                              
-                              l.addView(stepBox)
+                              add(l, stepBox)
                           }
                       } else {
                           // Job is queued, steps array is missing
                           val stepBox = LinearLayout(this).apply {
                               orientation = LinearLayout.VERTICAL
-                              background = box(col(R.color.card), col(R.color.stroke), 12)
-                              layoutParams = lp(-1, -2).apply { setMargins(dp(2), dp(6), dp(2), dp(6)) }
+                              background = box(col(R.color.card), col(R.color.stroke), 8)
+                              layoutParams = lp(-1, -2).apply { bottomMargin = dp(10) }
                           }
                           val stepRow = LinearLayout(this).apply {
                               gravity = Gravity.CENTER_VERTICAL
@@ -768,7 +778,7 @@ jobs:
                           stepRow.addView(tv("○", 15, true, R.color.muted).apply { setPadding(0, 0, dp(12), 0) })
                           stepRow.addView(tv(j.getString("name"), 14, false, R.color.muted).apply { setSingleLine() }, lp(0, -2, 1f))
                           stepBox.addView(stepRow)
-                          l.addView(stepBox)
+                          add(l, stepBox)
                       }
                   }
                   
@@ -777,7 +787,6 @@ jobs:
 
               fun watch(full: String, sha: String, repo: File) {
                   val my = ++live; logMap.clear()
-                  // Main Build Process Page
                   val l = page("Build Process", btn("Close") { live++; browse(repo, repo) })
                   onBack = { live++; browse(repo, repo) }
                   
@@ -795,7 +804,6 @@ jobs:
                           
                           for (k in 0 until js.length()) {
                               val j = js.getJSONObject(k)
-                              // Only fetch logs if step is in_progress or failed
                               if ((j.getString("status") == "in_progress" || (j.getString("status") == "completed" && j.optString("conclusion") == "failure")) && j.getString("status") != "queued") {
                                   try { logMap[j.getLong("id")] = tail(String(http("GET", "/repos/$full/actions/jobs/" + j.getLong("id") + "/logs").inputStream.readBytes())) } catch (e: Exception) { }
                               }
@@ -826,11 +834,10 @@ jobs:
               }
 
               fun logs(u: String) {
-                  // Dialog to show while fetching logs
-                  val loadDlg = dlg("Fetching Logs...", ProgressBar(this).apply { setPadding(dp(16),dp(16),dp(16),dp(16)) }, null, null)
+                  val loadingDlg = dlg("Loading...", tv("Fetching raw logs, please wait...", 14, false, R.color.muted), null, null)
                   bg {
-                      val sb = StringBuilder()
                       try {
+                          val sb = StringBuilder()
                           ZipInputStream(http("GET", "$u/logs").inputStream).use { z ->
                               var e = z.nextEntry
                               while (e != null) {
@@ -838,11 +845,13 @@ jobs:
                                   e = z.nextEntry
                               }
                           }
-                      } catch(e: Exception) {}
-                      ui {
-                          loadDlg.dismiss()
-                          val t = TextView(this).apply { text = sb; textSize = 11f; setTextIsSelectable(true); typeface = Typeface.MONOSPACE; setTextColor(col(R.color.fg)); setPadding(dp(16), dp(12), dp(16), dp(12)) }
-                          dlg("Raw logs", ScrollView(this).apply { addView(t) }, "Copy all", "Close", true) { (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("log", sb)); toast("Copied") }
+                          ui {
+                              loadingDlg.dismiss()
+                              val t = TextView(this@MainActivity).apply { text = sb; textSize = 11f; setTextIsSelectable(true); typeface = Typeface.MONOSPACE; setTextColor(col(R.color.fg)); setPadding(dp(16), dp(12), dp(16), dp(12)) }
+                              dlg("Raw logs", ScrollView(this@MainActivity).apply { addView(t) }, "Copy all", "Close", true) { (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("log", sb)); toast("Copied") }
+                          }
+                      } catch(e: Exception) {
+                          ui { loadingDlg.dismiss(); alert("Error", e.message ?: "Failed to fetch logs") }
                       }
                   }
               }
