@@ -97,8 +97,8 @@ jobs:
           <resources>
               <color name="bg">#F6F7FB</color>
               <color name="fg">#14161F</color>
-              <color name="p1">#6C5CE7</color>
-              <color name="p2">#00B4D8</color>
+              <color name="p1">#3B82F6</color>
+              <color name="p2">#3B82F6</color>
               <color name="card">#FFFFFF</color>
               <color name="stroke">#E1E4EE</color>
               <color name="muted">#6B7280</color>
@@ -116,8 +116,8 @@ jobs:
           <resources>
               <color name="bg">#0E1018</color>
               <color name="fg">#ECEEF6</color>
-              <color name="p1">#7C6CFF</color>
-              <color name="p2">#00D2FF</color>
+              <color name="p1">#3B82F6</color>
+              <color name="p2">#3B82F6</color>
               <color name="card">#171A26</color>
               <color name="stroke">#272B3B</color>
               <color name="muted">#8B93A8</color>
@@ -160,9 +160,21 @@ jobs:
               val lnp = Paint().apply { strokeWidth = 2f }
               var gw = 0f; var dg = 0; var gc = 0
               val d = resources.displayMetrics.density
+              var acc = 1f; var multi = false
+              var lineNo = IntArray(0); var lastL: Layout? = null
+              
+              init {
+                  setHorizontallyScrolling(true) // Disable Word Wrap
+              }
+
               val sd = ScaleGestureDetector(c, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                   override fun onScale(s: ScaleGestureDetector): Boolean {
-                      setTextSize(TypedValue.COMPLEX_UNIT_PX, (textSize * s.scaleFactor).coerceIn(8 * d, 30 * d)); pad(true); return true
+                      acc *= s.scaleFactor
+                      if (acc > 1.15f || acc < 0.85f) { // Smooth threshold to reduce lag
+                          setTextSize(TypedValue.COMPLEX_UNIT_PX, (textSize * acc).coerceIn(8 * d, 40 * d))
+                          acc = 1f; pad(true)
+                      }
+                      return true
                   }
               })
 
@@ -177,15 +189,15 @@ jobs:
               override fun onDraw(cv: Canvas) {
                   val l = layout
                   if (l != null) {
-                      gp.color = gc; lnp.color = gc and 0x55FFFFFF
-                      val t = text; val clip = cv.clipBounds; var n = 1
-                      for (i in 0 until l.lineCount) {
-                          if (i == 0 || t[l.getLineStart(i) - 1] == '\n') {
-                              val y = l.getLineBaseline(i) + compoundPaddingTop.toFloat()
-                              if (y > clip.top - 60 && y < clip.bottom + 60) cv.drawText(n.toString(), gw - 8 * d, y, gp)
-                              n++
-                          }
+                      if (lastL !== l || lineNo.size != l.lineCount) {
+                          lastL = l; val t = text; val a = IntArray(l.lineCount); var n = 1
+                          for (i in 0 until l.lineCount) { if (i > 0 && t[l.getLineStart(i) - 1] == '\n') n++; a[i] = n }
+                          lineNo = a
                       }
+                      gp.color = gc; lnp.color = gc and 0x55FFFFFF
+                      val clip = cv.clipBounds; val pt = compoundPaddingTop
+                      val f = l.getLineForVertical((clip.top - pt).coerceAtLeast(0)); val e = l.getLineForVertical((clip.bottom - pt).coerceAtLeast(0))
+                      for (i in f..e) { if (i == 0 || text[l.getLineStart(i) - 1] == '\n') cv.drawText(lineNo[i].toString(), gw - 8 * d, l.getLineBaseline(i) + pt.toFloat(), gp) }
                       cv.drawLine(gw - 3 * d, clip.top.toFloat(), gw - 3 * d, clip.bottom.toFloat(), lnp)
                   }
                   super.onDraw(cv)
@@ -193,7 +205,21 @@ jobs:
 
               override fun onTouchEvent(e: MotionEvent): Boolean {
                   sd.onTouchEvent(e)
-                  if (sd.isInProgress) { parent?.requestDisallowInterceptTouchEvent(true); return true }
+                  if (e.actionMasked == MotionEvent.ACTION_DOWN) { multi = false; acc = 1f }
+                  if (e.pointerCount > 1) {
+                      if (!multi) {
+                          multi = true
+                          val c = MotionEvent.obtain(e); c.action = MotionEvent.ACTION_CANCEL; super.onTouchEvent(c); c.recycle()
+                          
+                          // Fix Keyboard showing during Zoom
+                          clearFocus()
+                          val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                          imm.hideSoftInputFromWindow(windowToken, 0)
+                      }
+                      parent?.requestDisallowInterceptTouchEvent(true)
+                      return true
+                  }
+                  if (multi && e.actionMasked == MotionEvent.ACTION_UP) { multi = false; return true }
                   return super.onTouchEvent(e)
               }
           }
@@ -207,6 +233,8 @@ jobs:
               var onBack: (() -> Unit)? = null
               var pickRepo: File? = null; var pickDir: File? = null
               var live = 0
+              val manual = HashMap<Long, Boolean>()
+              val logMap = HashMap<Long, String>()
 
               val KW = Regex("\\b(class|fun|val|var|def|function|return|if|else|for|while|import|package|public|private|static|void|int|new|true|false|null|const|let|async|await|try|catch|from|in|is|when|override|this|echo|run)\\b")
               val NUM = Regex("\\b\\d+(\\.\\d+)?\\b")
@@ -218,7 +246,11 @@ jobs:
               fun col(i: Int) = getColor(i)
               fun ui(f: () -> Unit) = runOnUiThread(f)
               fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
-              fun bg(f: () -> Unit) = Thread { try { f() } catch (e: Exception) { ui { toast("Error: " + e.message) } } }.start()
+              
+              fun bg(f: () -> Unit) = Thread { 
+                  try { f() } catch (e: Exception) { ui { alert("Error Occurred", e.message ?: "Unknown error") } } 
+              }.start()
+              
               fun lp(w: Int = -2, hh: Int = -2, wt: Float = 0f, m: Int = 0) = LinearLayout.LayoutParams(w, hh, wt).apply { setMargins(dp(m), dp(m), dp(m), dp(m)) }
               fun box(fill: Int, stroke: Int, r: Int) = GradientDrawable().apply { setColor(fill); setStroke(dp(1), stroke); cornerRadius = dp(r).toFloat() }
               fun add(l: LinearLayout, v: View) = l.addView(v, lp(-1, -2).apply { bottomMargin = dp(8) })
@@ -227,33 +259,85 @@ jobs:
                   text = t; textSize = s.toFloat(); setTextColor(col(c))
                   if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
               }
+              
+              // Light blue simple buttons
               fun btn(t: String, f: () -> Unit) = Button(this).apply {
-                  text = t; isAllCaps = false; textSize = 12f; setTextColor(-1)
+                  text = t; isAllCaps = false; textSize = 13f; setTextColor(-1)
                   minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0; stateListAnimator = null
-                  setPadding(dp(12), 0, dp(12), 0)
-                  background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(col(R.color.p1), col(R.color.p2))).apply { cornerRadius = dp(8).toFloat() }
-                  layoutParams = lp(-2, dp(32), 0f, 0).apply { setMargins(dp(3), 0, dp(3), 0) }
+                  setPadding(dp(14), dp(8), dp(14), dp(8))
+                  background = GradientDrawable().apply { setColor(Color.parseColor("#3B82F6")); cornerRadius = dp(8).toFloat() }
+                  layoutParams = lp(-2, -2, 0f, 0).apply { setMargins(dp(4), 0, dp(4), 0) }
                   setOnClickListener { f() }
               }
+              
               fun dots(f: () -> Unit) = TextView(this).apply {
                   text = "\u22EE"; textSize = 22f; setTextColor(col(R.color.muted)); gravity = Gravity.CENTER
                   setPadding(dp(10), 0, dp(6), 0); setOnClickListener { f() }
               }
+              
               fun card() = LinearLayout(this).apply {
-                  gravity = Gravity.CENTER_VERTICAL; background = box(col(R.color.card), col(R.color.stroke), 10)
-                  setPadding(dp(12), dp(10), dp(8), dp(10))
+                  gravity = Gravity.CENTER_VERTICAL; background = box(col(R.color.card), col(R.color.stroke), 12)
+                  setPadding(dp(14), dp(12), dp(10), dp(12))
               }
+              
               fun bar(vararg v: View) = HorizontalScrollView(this).apply {
                   isHorizontalScrollBarEnabled = false
                   addView(LinearLayout(this@MainActivity).apply { v.forEach { addView(it) } })
               }
-              fun ask(t: String, init: String = "", f: (String) -> Unit) {
-                  val e = EditText(this).apply { setText(init); setSingleLine() }
-                  AlertDialog.Builder(this).setTitle(t).setView(e).setPositiveButton("OK") { _, _ -> f(e.text.toString().trim()) }.setNegativeButton("Cancel", null).show()
+              
+              fun flat(t: String, f: () -> Unit) = TextView(this).apply {
+                  text = t; textSize = 14f; setTextColor(col(R.color.muted)); typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                  setPadding(dp(14), dp(8), dp(14), dp(8)); setOnClickListener { f() }
               }
+
+              // Professional Modern Dialog
+              fun dlg(title: String, v: View?, ok: String?, cancel: String? = "Cancel", wide: Boolean = false, onOk: () -> Unit = {}): Dialog {
+                  val d = Dialog(this); d.requestWindowFeature(Window.FEATURE_NO_TITLE)
+                  val b = LinearLayout(this).apply { 
+                      orientation = LinearLayout.VERTICAL
+                      background = GradientDrawable().apply { setColor(col(R.color.card)); cornerRadius = dp(16).toFloat(); setStroke(dp(1), col(R.color.stroke)) }
+                      setPadding(dp(24), dp(24), dp(24), dp(16)) 
+                  }
+                  b.addView(tv(title, 18, true).apply { setPadding(0, 0, 0, dp(12)) })
+                  if (v != null) b.addView(v, if (wide) lp(-1, 0, 1f) else lp(-1, -2))
+                  val r = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; setPadding(0, dp(16), 0, 0) }
+                  if (cancel != null) r.addView(flat(cancel) { d.dismiss() })
+                  if (ok != null) r.addView(btn(ok) { d.dismiss(); onOk() })
+                  b.addView(r); d.setContentView(b)
+                  d.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0))
+                  d.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                  val m = resources.displayMetrics
+                  d.window?.setLayout((m.widthPixels * 0.90).toInt(), if (wide) (m.heightPixels * 0.85).toInt() else -2)
+                  d.show(); return d
+              }
+              
+              fun alert(title: String, msg: String) = ui {
+                  dlg(title, tv(msg, 14, false, R.color.muted), "OK", null) {}
+              }
+
+              fun menuDlg(title: String, names: List<String>, pick: (Int) -> Unit) {
+                  var d: Dialog? = null
+                  val v = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(6), 0, dp(6)) }
+                  names.forEachIndexed { i, n -> 
+                      v.addView(tv(n, 15, true).apply { 
+                          setPadding(dp(6), dp(14), dp(6), dp(14))
+                          setOnClickListener { d?.dismiss(); pick(i) } 
+                      }, lp(-1, -2)) 
+                  }
+                  d = dlg(title, v, null, "Close")
+              }
+              
+              fun ask(t: String, init: String = "", f: (String) -> Unit) {
+                  val e = EditText(this).apply {
+                      setText(init); setSingleLine(); setTextColor(col(R.color.fg)); textSize = 15f
+                      setPadding(dp(14), dp(12), dp(14), dp(12)); background = box(col(R.color.bg), col(R.color.stroke), 8); requestFocus()
+                  }
+                  dlg(t, e, "OK") { f(e.text.toString().trim()) }
+              }              
+
               fun page(t: String, act: View? = null): LinearLayout {
                   onBack = null; root.removeAllViews(); root.gravity = Gravity.TOP
-                  val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(10)) }
+                  val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(8), 0, dp(12)) }
                   top.addView(tv(t, 22, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.START }, lp(0, -2, 1f))
                   if (act != null) top.addView(act)
                   root.addView(top)
@@ -265,11 +349,11 @@ jobs:
                   onBack = null; root.removeAllViews(); root.gravity = Gravity.CENTER
                   val b = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
-                      background = box(col(R.color.card), col(R.color.stroke), 14); setPadding(dp(20), dp(24), dp(20), dp(24))
+                      background = box(col(R.color.card), col(R.color.stroke), 16); setPadding(dp(24), dp(30), dp(24), dp(30))
                   }
-                  b.addView(tv(title, 20, true))
-                  b.addView(tv(msg, 13, false, R.color.muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(8), 0, dp(18)) })
-                  root.addView(b, lp(-1, -2, 0f, 8)); return b
+                  b.addView(tv(title, 22, true))
+                  b.addView(tv(msg, 14, false, R.color.muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(12), 0, dp(24)) })
+                  root.addView(b, lp(-1, -2, 0f, 12)); return b
               }
 
               // ---------- lifecycle ----------
@@ -284,7 +368,7 @@ jobs:
                       orientation = LinearLayout.VERTICAL
                       setBackgroundColor(col(R.color.bg))
                       setOnApplyWindowInsetsListener { v, i ->
-                          v.setPadding(dp(14), i.systemWindowInsetTop + dp(10), dp(14), i.systemWindowInsetBottom + dp(10)); i
+                          v.setPadding(dp(16), i.systemWindowInsetTop + dp(12), dp(16), i.systemWindowInsetBottom + dp(12)); i
                       }
                   }
                   setContentView(root)
@@ -310,16 +394,16 @@ jobs:
                   val b = center("GitHub token", "Paste a personal access token with repo and workflow scopes.")
                   val e = EditText(this).apply {
                       hint = "Personal access token"; setSingleLine(); setTextColor(col(R.color.fg)); setHintTextColor(col(R.color.muted))
-                      textSize = 14f; setPadding(dp(12), dp(10), dp(12), dp(10)); background = box(col(R.color.bg), col(R.color.stroke), 8)
+                      textSize = 15f; setPadding(dp(14), dp(12), dp(14), dp(12)); background = box(col(R.color.bg), col(R.color.stroke), 8)
                   }
-                  b.addView(e, lp(-1, -2).apply { bottomMargin = dp(14) })
+                  b.addView(e, lp(-1, -2).apply { bottomMargin = dp(16) })
                   b.addView(btn("Continue") { sp.edit().putString("t", e.text.toString().trim()).apply(); repos() })
               }
 
               // ---------- repositories ----------
               fun repos() {
                   val l = page("Repositories", btn("Token") { tokenScreen() })
-                  val wait = tv("Loading repositories...", 13, false, R.color.muted); l.addView(wait)
+                  val wait = tv("Loading repositories...", 14, false, R.color.muted); l.addView(wait)
                   bg {
                       val a = JSONArray(api("GET", "/user/repos?per_page=100&sort=updated"))
                       ui {
@@ -327,8 +411,8 @@ jobs:
                           for (i in 0 until a.length()) {
                               val j = a.getJSONObject(i); val name = j.getString("name"); val dir = File(base, name)
                               val c = card(); val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                              info.addView(tv(name, 16, true))
-                              info.addView(tv((if (j.getBoolean("private")) "Private" else "Public") + "  |  " + j.getString("default_branch"), 12, false, R.color.muted))
+                              info.addView(tv(name, 17, true))
+                              info.addView(tv((if (j.getBoolean("private")) "Private" else "Public") + "  |  " + j.getString("default_branch"), 13, false, R.color.muted))
                               c.addView(info, lp(0, -2, 1f))
                               var b: Button? = null
                               b = if (dir.exists()) btn("Open") { browse(dir, dir) } else btn("Clone") {
@@ -358,38 +442,37 @@ jobs:
                       btn("New file") { ask("File name") { if (it.isNotEmpty()) { File(dir, it).createNewFile(); browse(repo, dir) } } },
                       btn("New folder") { ask("Folder name") { if (it.isNotEmpty()) { File(dir, it).mkdirs(); browse(repo, dir) } } },
                       btn("Import") { pickRepo = repo; pickDir = dir; importFile() },
-                      btn("Search") { ask("Search files and content") { if (it.isNotEmpty()) search(repo, it) } },
+                      btn("Search") { ask("Search files") { if (it.isNotEmpty()) search(repo, it) } },
                       btn("Push all") {
-                          AlertDialog.Builder(this).setTitle("Push all").setMessage("All existing files in the GitHub repository will be deleted first, then every local file will be pushed. Continue?")
-                              .setPositiveButton("Push") { _, _ -> pushAll(repo) }.setNegativeButton("Cancel", null).show()
-                      }), lp(-1, -2).apply { bottomMargin = dp(10) })
+                          dlg("Push all", tv("All existing files in the GitHub repository will be deleted first, then every local file will be pushed. Continue?", 15, false, R.color.muted), "Push") { pushAll(repo) }
+                      }), lp(-1, -2).apply { bottomMargin = dp(12) })
                   if (dir != repo) {
                       val c = card().apply { setOnClickListener { browse(repo, dir.parentFile!!) } }
-                      c.addView(tv("..  Parent folder", 14, true, R.color.muted)); add(l, c)
+                      c.addView(tv("..  Parent folder", 15, true, R.color.muted)); add(l, c)
                   }
                   dir.listFiles()!!.filter { !it.name.startsWith(".gab") }
                       .sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() })).forEach { f ->
                           val c = card().apply { setOnClickListener { if (f.isDirectory) browse(repo, f) else edit(repo, dir, f) } }
                           val ext = if (f.isDirectory) "DIR" else f.extension.uppercase().take(4).ifEmpty { "FILE" }
-                          c.addView(tv(ext, 10, true, if (f.isDirectory) R.color.white else R.color.fg).apply {
+                          c.addView(tv(ext, 11, true, if (f.isDirectory) R.color.white else R.color.fg).apply {
                               gravity = Gravity.CENTER; background = box(if (f.isDirectory) col(R.color.p1) else col(R.color.stroke), 0, 8)
-                          }, lp(dp(42), dp(34)).apply { rightMargin = dp(12) })
+                          }, lp(dp(44), dp(36)).apply { rightMargin = dp(14) })
                           val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                          info.addView(tv(f.name, 14, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.MIDDLE })
-                          info.addView(tv(sz(f), 11, false, R.color.muted))
+                          info.addView(tv(f.name, 15, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.MIDDLE })
+                          info.addView(tv(sz(f), 12, false, R.color.muted))
                           c.addView(info, lp(0, -2, 1f)); c.addView(dots { menu(repo, dir, f) }); add(l, c)
                       }
               }
 
               fun menu(repo: File, dir: File, f: File) {
-                  AlertDialog.Builder(this).setItems(arrayOf("Rename", "Delete", "Push this file", "Export to device")) { _, w ->
+                  menuDlg(f.name, listOf("Rename", "Delete", "Push this file", "Export to device")) { w ->
                       when (w) {
                           0 -> ask("New name", f.name) { if (it.isNotEmpty()) { f.renameTo(File(dir, it)); browse(repo, dir) } }
-                          1 -> AlertDialog.Builder(this).setMessage("Delete " + f.name + "?").setPositiveButton("Delete") { _, _ -> f.deleteRecursively(); browse(repo, dir) }.setNegativeButton("Cancel", null).show()
+                          1 -> dlg("Delete", tv("Delete " + f.name + "? This cannot be undone.", 15, false, R.color.muted), "Delete") { f.deleteRecursively(); browse(repo, dir) }
                           2 -> if (f.isFile) pushOne(repo, f) else toast("Use Push all for folders")
                           3 -> bg { val o = File(base, "Exports/" + f.name); o.parentFile?.mkdirs(); f.copyRecursively(o, true); ui { toast("Exported to " + o.path) } }
                       }
-                  }.show()
+                  }
               }
 
               fun importFile() {
@@ -416,7 +499,7 @@ jobs:
               fun search(repo: File, q: String) {
                   val l = page("Search: $q", btn("Back") { browse(repo, repo) })
                   onBack = { browse(repo, repo) }
-                  l.addView(tv("Searching...", 13, false, R.color.muted))
+                  l.addView(tv("Searching...", 14, false, R.color.muted))
                   bg {
                       val res = ArrayList<Pair<File, String>>()
                       for (f in files(repo)) {
@@ -429,11 +512,11 @@ jobs:
                       }
                       ui {
                           l.removeAllViews()
-                          if (res.isEmpty()) l.addView(tv("No results found", 13, false, R.color.muted))
+                          if (res.isEmpty()) l.addView(tv("No results found", 14, false, R.color.muted))
                           for ((f, why) in res) {
                               val c = card().apply { setOnClickListener { edit(repo, f.parentFile!!, f) } }
                               val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                              info.addView(tv(f.relativeTo(repo).path, 14, true)); info.addView(tv(why, 11, false, R.color.muted))
+                              info.addView(tv(f.relativeTo(repo).path, 15, true)); info.addView(tv(why, 12, false, R.color.muted))
                               c.addView(info); add(l, c)
                           }
                       }
@@ -450,14 +533,15 @@ jobs:
               }
 
               fun edit(repo: File, dir: File, f: File) {
-                  if (f.length() > 400000) { toast("File is too large to edit"); return }
-                  var last = f.readText(); var silent = false; var wrap = true
+                  if (f.length() > 400000) { alert("Error", "File is too large to edit"); return }
+                  var last = f.readText(); var silent = false
                   val undo = ArrayList<String>(); val redo = ArrayList<String>()
+                  
                   val cv = CodeView(this).apply {
-                      setText(last); typeface = Typeface.MONOSPACE; setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                      setText(last); typeface = Typeface.MONOSPACE; setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                       setTextColor(col(R.color.fg)); background = null; gravity = Gravity.TOP; gc = col(R.color.muted)
                       inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-                      setHorizontallyScrolling(false); minLines = 20; pad(true)
+                      minLines = 20; pad(true)
                   }
                   hl(cv.text)
                   val commit = Runnable {
@@ -476,22 +560,14 @@ jobs:
 
                   root.removeAllViews(); root.gravity = Gravity.TOP
                   onBack = { flush(); browse(repo, dir) }
-                  val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(8)) }
-                  top.addView(tv(f.name, 16, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.MIDDLE }, lp(0, -2, 1f))
+                  val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(12)) }
+                  top.addView(tv(f.name, 17, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.MIDDLE }, lp(0, -2, 1f))
                   top.addView(btn("Save") { save() })
                   top.addView(btn("Undo") { flush(); if (undo.isNotEmpty()) { redo.add(last); put(undo.removeAt(undo.size - 1)) } })
                   top.addView(btn("Redo") { flush(); if (redo.isNotEmpty()) { undo.add(last); put(redo.removeAt(redo.size - 1)) } })
                   top.addView(btn("Push") { save(); pushOne(repo, f) })
-                  top.addView(dots {
-                      val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(16), dp(24), dp(8)) }
-                      val sw = Switch(this).apply { text = "Word wrap"; isChecked = wrap; setOnCheckedChangeListener { _, c -> wrap = c; cv.setHorizontallyScrolling(!c) } }
-                      box.addView(sw)
-                      box.addView(tv("Pinch with two fingers to zoom the code.", 12, false, R.color.muted).apply { setPadding(0, dp(10), 0, 0) })
-                      AlertDialog.Builder(this).setTitle("Editor options").setView(box).setPositiveButton("Close", null).show()
-                  })
                   root.addView(top)
-                  val hs = HorizontalScrollView(this).apply { isFillViewport = true; addView(cv, FrameLayout.LayoutParams(-1, -2)) }
-                  root.addView(ScrollView(this).apply { isFillViewport = true; addView(hs) }, lp(-1, 0, 1f))
+                  root.addView(ScrollView(this).apply { isFillViewport = true; addView(cv, FrameLayout.LayoutParams(-1, -2)) }, lp(-1, 0, 1f))
               }
 
               // ---------- GitHub API ----------
@@ -505,7 +581,25 @@ jobs:
                   return c
               }
               fun api(m: String, u: String, body: String? = null) = http(m, u, body).inputStream.bufferedReader().readText()
-              fun meta(repo: File) = File(repo, ".gab").readLines()
+              
+              fun meta(repo: File): List<String> {
+                  val m = File(repo, ".gab")
+                  if (!m.exists()) {
+                      val a = JSONArray(api("GET", "/user/repos?per_page=100"))
+                      var found = false
+                      for (i in 0 until a.length()) { 
+                          val j = a.getJSONObject(i)
+                          if (j.getString("name").equals(repo.name, ignoreCase = true)) { 
+                              m.writeText(j.getString("full_name") + "\n" + j.getString("default_branch"))
+                              found = true
+                              break 
+                          } 
+                      }
+                      if (!found) throw Exception("Repository not found on GitHub. Push feature requires a valid connected repository.")
+                  }
+                  return m.readLines()
+              }
+              
               fun files(repo: File) = repo.walkTopDown().filter { it.isFile && !it.relativeTo(repo).path.let { p -> p.startsWith(".gab") || p.startsWith(".git/") } }.toList()
 
               fun unzip(i: InputStream, out: File) {
@@ -540,7 +634,6 @@ jobs:
                           .put("content", Base64.encodeToString(f.readBytes(), Base64.NO_WRAP)).put("encoding", "base64").toString())).getString("sha")
                       tree.put(JSONObject().put("path", f.relativeTo(repo).path).put("mode", "100644").put("type", "blob").put("sha", b))
                   }
-                  // No base_tree: old remote files are removed, only local files remain
                   val t = JSONObject(api("POST", "/repos/$full/git/trees", JSONObject().put("tree", tree).toString())).getString("sha")
                   val c = JSONObject(api("POST", "/repos/$full/git/commits", JSONObject().put("message", "Push all from Git Action Build")
                       .put("tree", t).put("parents", JSONArray().put(head)).toString())).getString("sha")
@@ -559,48 +652,87 @@ jobs:
                   s == "in_progress" -> "Running" to R.color.p1
                   else -> "Queued" to R.color.muted
               }
-              fun spin(): View = ProgressBar(this).apply { isIndeterminate = true; layoutParams = lp(dp(14), dp(14)).apply { rightMargin = dp(6) } }
+              
+              fun spin(): View = ProgressBar(this).apply { isIndeterminate = true; layoutParams = lp(dp(16), dp(16)).apply { rightMargin = dp(8) } }
+              
               fun statusRow(name: String, s: String, c: String, size: Int, bold: Boolean): LinearLayout {
                   val (txt, color) = stat(s, c)
-                  val r = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(3), 0, dp(3)) }
+                  val r = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
                   r.addView(tv(name, size, bold).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.END }, lp(0, -2, 1f))
                   if (s == "in_progress") r.addView(spin())
                   r.addView(tv(txt, size - 1, true, color)); return r
               }
 
+              fun isOpen(j: JSONObject): Boolean {
+                  val id = j.getLong("id")
+                  if (manual.containsKey(id)) return manual[id]!!
+                  return j.getString("status") == "in_progress" || (j.getString("status") == "completed" && j.optString("conclusion") == "failure")
+              }
+
+              fun tail(t: String): String {
+                  val ansi = Regex("\u001B\\[[0-9;]*m"); val ts = Regex("^\\uFEFF?\\d{4}-\\d\\d-\\d\\dT[\\d:.]+Z ")
+                  return t.lines().map { ts.replace(ansi.replace(it, ""), "") }.takeLast(80).joinToString("\n")
+              }
+
               fun draw(l: LinearLayout, r: JSONObject, js: JSONArray) {
+                  val sv = l.parent as? ScrollView; val y = sv?.scrollY ?: 0
                   l.removeAllViews()
                   val s = r.getString("status"); val c = r.optString("conclusion")
                   val head = card().apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.START }
-                  head.addView(statusRow(r.optString("name", "Workflow run"), s, c, 15, true))
-                  if (s != "completed") head.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { isIndeterminate = true }, lp(-1, dp(6)))
+                  head.addView(statusRow(r.optString("name", "Workflow run"), s, c, 16, true))
+                  if (s != "completed") head.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { isIndeterminate = true }, lp(-1, dp(8)).apply { topMargin = dp(6) })
                   add(l, head)
                   for (k in 0 until js.length()) {
-                      val j = js.getJSONObject(k)
+                      val j = js.getJSONObject(k); val id = j.getLong("id"); val open = isOpen(j)
                       val jc = card().apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.START }
-                      jc.addView(statusRow(j.getString("name"), j.getString("status"), j.optString("conclusion"), 14, true))
-                      val steps = j.optJSONArray("steps")
-                      if (steps != null) for (q in 0 until steps.length()) {
-                          val st = steps.getJSONObject(q)
-                          jc.addView(statusRow(st.getString("name"), st.getString("status"), st.optString("conclusion"), 12, false))
+                      
+                      // Auto-dropdown visual styles (GitHub like)
+                      val arrow = if (open) "▼" else "▶"
+                      val hd = statusRow("$arrow  " + j.getString("name"), j.getString("status"), j.optString("conclusion"), 15, true)
+                      hd.setOnClickListener { manual[id] = !open; draw(l, r, js) }
+                      jc.addView(hd)
+                      
+                      if (open) {
+                          val steps = j.optJSONArray("steps")
+                          if (steps != null) for (q in 0 until steps.length()) {
+                              val st = steps.getJSONObject(q)
+                              jc.addView(statusRow("   " + st.getString("name"), st.getString("status"), st.optString("conclusion"), 13, false))
+                          }
+                          val lg = logMap[id]
+                          
+                          // GitHub dark terminal styling for logs
+                          jc.addView(tv(if (lg.isNullOrEmpty()) "Fetching logs..." else lg, 11).apply {
+                              typeface = Typeface.MONOSPACE
+                              setTextColor(Color.parseColor("#E5E7EB"))
+                              background = GradientDrawable().apply { setColor(Color.parseColor("#111827")); cornerRadius = dp(8).toFloat(); setStroke(dp(1), Color.parseColor("#374151")) }
+                              setPadding(dp(12), dp(12), dp(12), dp(12))
+                              setHorizontallyScrolling(true)
+                          }, lp(-1, -2).apply { topMargin = dp(10) })
                       }
                       add(l, jc)
                   }
+                  sv?.post { sv.scrollTo(0, y) }
               }
 
               fun watch(full: String, sha: String, repo: File) {
-                  val my = ++live
+                  val my = ++live; manual.clear(); logMap.clear()
                   val l = page("Build", btn("Close") { live++; browse(repo, repo) })
                   onBack = { live++; browse(repo, repo) }
-                  val w = card(); w.addView(spin()); w.addView(tv("Waiting for the workflow to start...", 13, false, R.color.muted)); add(l, w)
+                  val w = card(); w.addView(spin()); w.addView(tv("Waiting for the workflow to start...", 14, false, R.color.muted)); add(l, w)
                   bg {
-                      for (i in 0 until 400) {
+                      for (i in 0 until 600) {
                           if (my != live) return@bg
                           Thread.sleep(3000)
                           val rs = JSONObject(api("GET", "/repos/$full/actions/runs?head_sha=$sha")).getJSONArray("workflow_runs")
                           if (rs.length() == 0) continue
                           val r = rs.getJSONObject(0)
                           val js = JSONObject(api("GET", r.getString("url") + "/jobs")).getJSONArray("jobs")
+                          for (k in 0 until js.length()) {
+                              val j = js.getJSONObject(k)
+                              if (isOpen(j) && j.getString("status") != "queued") {
+                                  try { logMap[j.getLong("id")] = tail(String(http("GET", "/repos/$full/actions/jobs/" + j.getLong("id") + "/logs").inputStream.readBytes())) } catch (e: Exception) { }
+                              }
+                          }
                           val done = r.getString("status") == "completed"
                           ui { if (my == live) draw(l, r, js) }
                           if (done) {
@@ -614,11 +746,16 @@ jobs:
 
               fun download(r: JSONObject, l: LinearLayout) {
                   val a = JSONObject(api("GET", r.getString("url") + "/artifacts")).getJSONArray("artifacts")
-                  if (a.length() == 0) { ui { add(l, tv("Build succeeded. No artifacts were produced.", 13, false, R.color.muted)) }; return }
-                  val x = a.getJSONObject(0); val out = File(base, "artifacts/" + x.getString("name") + ".zip")
+                  if (a.length() == 0) { ui { add(l, tv("Build succeeded. No artifacts were produced.", 14, false, R.color.muted)) }; return }
+                  val x = a.getJSONObject(0)
+                  val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+                  
+                  // Fixed artifact replacement issue (Appended Run ID and timestamp)
+                  val out = File(base, "artifacts/" + x.getString("name") + "_run" + r.optInt("run_number") + "_" + stamp + ".zip")
                   out.parentFile?.mkdirs()
+                  
                   http("GET", x.getString("archive_download_url")).inputStream.use { i -> out.outputStream().use { i.copyTo(it) } }
-                  ui { add(l, tv("Artifact downloaded:\n" + out.path, 13, true, R.color.ok)) }
+                  ui { add(l, tv("Artifact downloaded successfully:\n" + out.path, 14, true, R.color.ok)) }
               }
 
               fun logs(u: String) = bg {
@@ -631,11 +768,8 @@ jobs:
                       }
                   }
                   ui {
-                      val t = TextView(this).apply { text = sb; textSize = 10f; setTextIsSelectable(true); typeface = Typeface.MONOSPACE; setTextColor(col(R.color.fg)); setPadding(dp(12), dp(8), dp(12), dp(8)) }
-                      AlertDialog.Builder(this).setTitle("Raw logs").setView(ScrollView(this).apply { addView(t) })
-                          .setPositiveButton("Copy all") { _, _ ->
-                              (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("log", sb)); toast("Copied")
-                          }.setNegativeButton("Close", null).show()
+                      val t = TextView(this).apply { text = sb; textSize = 11f; setTextIsSelectable(true); typeface = Typeface.MONOSPACE; setTextColor(col(R.color.fg)); setPadding(dp(16), dp(12), dp(16), dp(12)) }
+                      dlg("Raw logs", ScrollView(this).apply { addView(t) }, "Copy all", "Close", true) { (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("log", sb)); toast("Copied") }
                   }
               }
           }
