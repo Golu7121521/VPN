@@ -634,7 +634,7 @@ jobs:
                       val t = TextView(this).apply { text = sb; textSize = 10f; setTextIsSelectable(true); typeface = Typeface.MONOSPACE; setTextColor(col(R.color.fg)); setPadding(dp(12), dp(8), dp(12), dp(8)) }
                       AlertDialog.Builder(this).setTitle("Raw logs").setView(ScrollView(this).apply { addView(t) })
                           .setPositiveButton("Copy all") { _, _ ->
-                              (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("log", sb)); toast("Copied")
+                              (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("log", sb)); toast("Copied")
                           }.setNegativeButton("Close", null).show()
                   }
               }
