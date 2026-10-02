@@ -85,8 +85,8 @@ jobs:
                 applicationId "com.gamerec.lite"
                 minSdk 21
                 targetSdk 36
-                versionCode 7
-                versionName "2.1"
+                versionCode 8
+                versionName "2.2"
             }
 
             signingConfigs {
@@ -301,6 +301,7 @@ jobs:
 
         import android.Manifest;
         import android.app.Activity;
+        import android.app.AlertDialog;
         import android.content.Intent;
         import android.content.SharedPreferences;
         import android.content.pm.PackageManager;
@@ -309,14 +310,17 @@ jobs:
         import android.graphics.Typeface;
         import android.graphics.drawable.GradientDrawable;
         import android.media.projection.MediaProjectionManager;
+        import android.net.Uri;
         import android.os.Build;
         import android.os.Bundle;
+        import android.provider.Settings;
         import android.view.Gravity;
         import android.view.View;
         import android.view.ViewGroup;
         import android.view.Window;
         import android.view.WindowInsets;
         import android.view.WindowManager;
+        import android.widget.AdapterView;
         import android.widget.ArrayAdapter;
         import android.widget.Button;
         import android.widget.FrameLayout;
@@ -344,14 +348,15 @@ jobs:
             private static final int C_MUTED = 0xFF7A889B;
             private static final int C_WHITE = 0xFFF0F4F8;
 
-            private final String[] resLabels = {"240p", "360p", "480p", "720p (HD)", "1080p (Full HD)", "1440p (2K)", "2160p (4K)"};
-            private final int[] resValues = {240, 360, 480, 720, 1080, 1440, 2160};
-            private final int[] fpsValues = {10, 15, 20, 24, 25, 30, 45, 50, 60, 72, 90, 120};
-            private final int[] bitValues = {1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30, 40, 50, 60, 80, 100};
+            // everything the app can offer; the list shown is trimmed to what this phone supports
+            private static final int[] RES_ALL = {240, 360, 480, 720, 1080, 1440, 2160};
+            private static final int[] FPS_ALL = {10, 15, 20, 24, 25, 30, 45, 50, 60, 72, 90, 120, 144};
+            private static final int[] BIT_ALL = {1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30, 40, 50, 60, 80, 100};
             private final String[] audioLabels = {"Device audio", "Device + Mic"};
             private final String[] oriLabels = {"Auto", "Landscape", "Portrait"};
 
             private DD ddRes, ddFps, ddBit;
+            private DeviceCaps caps;
             private Seg segAudio, segOri;
             private SharedPreferences prefs;
             private float density;
@@ -392,6 +397,27 @@ jobs:
                 return lb;
             }
 
+            private String resLabel(int res) {
+                switch (res) {
+                    case 720:
+                        return "720p (HD)";
+                    case 1080:
+                        return "1080p (Full HD)";
+                    case 1440:
+                        return "1440p (2K)";
+                    case 2160:
+                        return "2160p (4K)";
+                    default:
+                        return res + "p";
+                }
+            }
+
+            private String[] resLabels(int[] vals) {
+                String[] out = new String[vals.length];
+                for (int i = 0; i < vals.length; i++) out[i] = resLabel(vals[i]);
+                return out;
+            }
+
             private String[] numbered(int[] vals, String suffix) {
                 String[] out = new String[vals.length];
                 for (int i = 0; i < vals.length; i++) out[i] = vals[i] + suffix;
@@ -401,14 +427,43 @@ jobs:
             // Dropdown selector
             private class DD {
                 final Spinner sp;
-                final int[] vals;
+                int[] vals = new int[0];
+                Runnable onChange;
 
                 DD(LinearLayout parent, String title, String[] labels, int[] vals, int selValue) {
-                    this.vals = vals;
                     label(parent, title);
 
                     FrameLayout frame = new FrameLayout(MainActivity.this);
                     sp = new Spinner(MainActivity.this);
+                    sp.setBackground(rounded(C_FIELD, 14, C_LINE));
+                    sp.setPopupBackgroundDrawable(rounded(C_CARD, 12, C_LINE));
+                    frame.addView(sp, new FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+
+                    ImageView arrow = new ImageView(MainActivity.this);
+                    arrow.setImageResource(R.drawable.ic_arrow);
+                    FrameLayout.LayoutParams alp = new FrameLayout.LayoutParams(
+                            dp(24), dp(24), Gravity.END | Gravity.CENTER_VERTICAL);
+                    alp.rightMargin = dp(12);
+                    frame.addView(arrow, alp);
+
+                    parent.addView(frame, new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+                    setOptions(labels, vals, selValue);
+                    sp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                        @Override
+                        public void onItemSelected(AdapterView<?> parentView, View v, int position, long id) {
+                            if (onChange != null) onChange.run();
+                        }
+
+                        @Override
+                        public void onNothingSelected(AdapterView<?> parentView) { }
+                    });
+                }
+
+                void setOptions(String[] labels, int[] newVals, int prefer) {
+                    vals = newVals;
                     ArrayAdapter<String> ad = new ArrayAdapter<String>(MainActivity.this,
                             android.R.layout.simple_spinner_item, labels) {
                         @Override
@@ -434,29 +489,18 @@ jobs:
                     };
                     ad.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                     sp.setAdapter(ad);
+                    // keep the closest option that does not exceed the wanted value
                     int idx = 0;
-                    for (int i = 0; i < vals.length; i++) {
-                        if (vals[i] == selValue) idx = i;
+                    for (int i = 0; i < newVals.length; i++) {
+                        if (newVals[i] <= prefer) idx = i;
                     }
                     sp.setSelection(idx);
-                    sp.setBackground(rounded(C_FIELD, 14, C_LINE));
-                    sp.setPopupBackgroundDrawable(rounded(C_CARD, 12, C_LINE));
-                    frame.addView(sp, new FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
-
-                    ImageView arrow = new ImageView(MainActivity.this);
-                    arrow.setImageResource(R.drawable.ic_arrow);
-                    FrameLayout.LayoutParams alp = new FrameLayout.LayoutParams(
-                            dp(24), dp(24), Gravity.END | Gravity.CENTER_VERTICAL);
-                    alp.rightMargin = dp(12);
-                    frame.addView(arrow, alp);
-
-                    parent.addView(frame, new LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
                 }
 
                 int value() {
-                    return vals[sp.getSelectedItemPosition()];
+                    int pos = sp.getSelectedItemPosition();
+                    if (pos < 0 || pos >= vals.length) pos = 0;
+                    return vals[pos];
                 }
             }
 
@@ -563,9 +607,17 @@ jobs:
                 head.setLetterSpacing(0.12f);
                 card.addView(head);
 
-                ddRes = new DD(card, "RESOLUTION", resLabels, resValues, prefs.getInt("res_v", 720));
-                ddFps = new DD(card, "FPS", numbered(fpsValues, " fps"), fpsValues, prefs.getInt("fps_v", 30));
-                ddBit = new DD(card, "BITRATE", numbered(bitValues, " Mbps"), bitValues, prefs.getInt("bit_v", 8));
+                caps = new DeviceCaps(this);
+                int[] resVals = caps.resolutions(RES_ALL);
+                ddRes = new DD(card, "RESOLUTION", resLabels(resVals), resVals, prefs.getInt("res_v", 720));
+                int[] fpsVals = caps.fps(FPS_ALL, ddRes.value());
+                ddFps = new DD(card, "FPS", numbered(fpsVals, " fps"), fpsVals, prefs.getInt("fps_v", 30));
+                int[] bitVals = caps.bitrates(BIT_ALL);
+                ddBit = new DD(card, "BITRATE", numbered(bitVals, " Mbps"), bitVals, prefs.getInt("bit_v", 8));
+                ddRes.onChange = () -> {
+                    int[] f = caps.fps(FPS_ALL, ddRes.value());
+                    ddFps.setOptions(numbered(f, " fps"), f, ddFps.value());
+                };
                 if (Build.VERSION.SDK_INT >= 29) {
                     segAudio = new Seg(card, "AUDIO", audioLabels, prefs.getInt("audio", 0));
                 }
@@ -615,6 +667,29 @@ jobs:
                     return ins;
                 });
                 setContentView(sv);
+                showIntroIfNeeded();
+            }
+
+            private void showIntroIfNeeded() {
+                if (prefs.getBoolean("intro_done", false)) return;
+                AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle("Before you start")
+                        .setMessage("These steps help on most phones:\n\n"
+                                + "1. Open Settings > Apps > Game Recorder > Battery and choose Unrestricted "
+                                + "(or Allow background activity). If your phone has an Autostart option, turn it ON. "
+                                + "Otherwise the system may stop the recording in the background.\n\n"
+                                + "2. Some games block device audio capture. If the game sound is missing "
+                                + "in your video, choose Device + Mic.")
+                        .setPositiveButton("Open app settings", (dlg, which) -> {
+                            try {
+                                startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse("package:" + getPackageName())));
+                            } catch (Exception ignored) { }
+                        })
+                        .setNegativeButton("Got it", null)
+                        .create();
+                dialog.setOnDismissListener(d -> prefs.edit().putBoolean("intro_done", true).apply());
+                dialog.show();
             }
 
             private void saveSettings() {
@@ -1001,6 +1076,156 @@ jobs:
         EOF
 
         mkdir -p app/src/main/java/com/gamerec/lite
+        cat << 'EOF' > app/src/main/java/com/gamerec/lite/DeviceCaps.java
+        package com.gamerec.lite;
+
+        import android.content.Context;
+        import android.hardware.display.DisplayManager;
+        import android.media.MediaCodecInfo;
+        import android.media.MediaCodecList;
+        import android.os.Build;
+        import android.util.DisplayMetrics;
+        import android.util.Range;
+        import android.view.Display;
+
+        import java.util.ArrayList;
+        import java.util.List;
+        import java.util.Locale;
+
+        // Reads what this phone can actually do (screen size, refresh rate, H.264 encoder limits)
+        final class DeviceCaps {
+
+            private final int nativeShort;
+            private final double ratio;
+            private float maxRefresh = 60f;
+            private MediaCodecInfo.VideoCapabilities vc;
+
+            DeviceCaps(Context ctx) {
+                int ns = 1080;
+                double ra = 2.0;
+                try {
+                    DisplayMetrics dm = new DisplayMetrics();
+                    Display d = ((DisplayManager) ctx.getSystemService(Context.DISPLAY_SERVICE))
+                            .getDisplay(Display.DEFAULT_DISPLAY);
+                    d.getRealMetrics(dm);
+                    int mn = Math.min(dm.widthPixels, dm.heightPixels);
+                    if (mn > 0) {
+                        ns = mn;
+                        ra = (double) Math.max(dm.widthPixels, dm.heightPixels) / mn;
+                    }
+                    maxRefresh = d.getRefreshRate();
+                    if (Build.VERSION.SDK_INT >= 23) {
+                        for (Display.Mode m : d.getSupportedModes()) {
+                            maxRefresh = Math.max(maxRefresh, m.getRefreshRate());
+                        }
+                    }
+                } catch (Exception ignored) { }
+                nativeShort = ns;
+                ratio = ra;
+                findEncoder();
+            }
+
+            private void findEncoder() {
+                try {
+                    MediaCodecInfo[] infos = new MediaCodecList(MediaCodecList.REGULAR_CODECS).getCodecInfos();
+                    MediaCodecInfo.VideoCapabilities fallback = null;
+                    for (MediaCodecInfo info : infos) {
+                        if (!info.isEncoder()) continue;
+                        for (String t : info.getSupportedTypes()) {
+                            if (!t.equalsIgnoreCase("video/avc")) continue;
+                            MediaCodecInfo.VideoCapabilities c;
+                            try {
+                                c = info.getCapabilitiesForType(t).getVideoCapabilities();
+                            } catch (Exception e) {
+                                continue;
+                            }
+                            if (c == null) continue;
+                            String n = info.getName().toLowerCase(Locale.US);
+                            boolean soft = n.startsWith("omx.google.") || n.startsWith("c2.android.");
+                            if (!soft) {
+                                vc = c;
+                                return;
+                            }
+                            if (fallback == null) fallback = c;
+                        }
+                    }
+                    vc = fallback;
+                } catch (Exception ignored) { }
+            }
+
+            // {long side, short side} of the recording for a given short-side resolution
+            private int[] dims(int res) {
+                int target = Math.min(res, nativeShort);
+                int s = Recorder.align16(target);
+                int l = Recorder.align16((int) Math.round(target * ratio));
+                return new int[]{l, s};
+            }
+
+            int[] resolutions(int[] all) {
+                List<Integer> out = new ArrayList<>();
+                for (int c : all) {
+                    if (c > nativeShort + 8) continue;
+                    if (c > 480 && vc != null) {
+                        int[] d = dims(c);
+                        try {
+                            if (!vc.isSizeSupported(d[0], d[1])) continue;
+                        } catch (Exception ignored) { }
+                    }
+                    out.add(c);
+                }
+                if (out.isEmpty()) out.add(all[0]);
+                return toArray(out);
+            }
+
+            int[] fps(int[] all, int res) {
+                float cap = maxRefresh + 1f;
+                if (vc != null) {
+                    int[] d = dims(res);
+                    try {
+                        Range<Double> r = vc.getSupportedFrameRatesFor(d[0], d[1]);
+                        cap = Math.min(cap, (float) (r.getUpper() + 0.5));
+                    } catch (Exception ignored) { }
+                }
+                List<Integer> out = new ArrayList<>();
+                for (int c : all) {
+                    if (c <= cap) out.add(c);
+                }
+                if (out.isEmpty()) out.add(all[0]);
+                return toArray(out);
+            }
+
+            int[] bitrates(int[] allMbps) {
+                long lo = 0;
+                long hi = Long.MAX_VALUE;
+                if (vc != null) {
+                    try {
+                        Range<Integer> r = vc.getBitrateRange();
+                        lo = r.getLower();
+                        hi = r.getUpper();
+                    } catch (Exception ignored) { }
+                }
+                List<Integer> out = new ArrayList<>();
+                for (int c : allMbps) {
+                    long bps = c * 1000000L;
+                    if (bps >= lo && bps <= hi) out.add(c);
+                }
+                if (out.isEmpty()) {
+                    for (int c : allMbps) {
+                        if (c <= 20) out.add(c);
+                    }
+                }
+                return toArray(out);
+            }
+
+            private static int[] toArray(List<Integer> l) {
+                int[] a = new int[l.size()];
+                for (int i = 0; i < a.length; i++) a[i] = l.get(i);
+                return a;
+            }
+        }
+        EOF
+
+        mkdir -p app/src/main/java/com/gamerec/lite
         cat << 'EOF' > app/src/main/java/com/gamerec/lite/Recorder.java
         package com.gamerec.lite;
 
@@ -1106,7 +1331,7 @@ jobs:
                 this.dpi = dm.densityDpi;
             }
 
-            private static int align16(int v) {
+            static int align16(int v) {
                 return Math.max(16, ((v + 8) / 16) * 16);
             }
 
