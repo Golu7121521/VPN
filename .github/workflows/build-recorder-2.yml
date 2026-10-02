@@ -85,8 +85,8 @@ jobs:
                 applicationId "com.gamerec.lite"
                 minSdk 21
                 targetSdk 36
-                versionCode 6
-                versionName "2.0"
+                versionCode 7
+                versionName "2.1"
             }
 
             signingConfigs {
@@ -182,6 +182,20 @@ jobs:
             <path
                 android:fillColor="#000000"
                 android:pathData="M40,54a14,14 0 1,0 28,0a14,14 0 1,0 -28,0z" />
+        </vector>
+        EOF
+
+        mkdir -p app/src/main/res/drawable
+        cat << 'EOF' > app/src/main/res/drawable/ic_arrow.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <vector xmlns:android="http://schemas.android.com/apk/res/android"
+            android:width="24dp"
+            android:height="24dp"
+            android:viewportWidth="24"
+            android:viewportHeight="24">
+            <path
+                android:fillColor="#00E5FF"
+                android:pathData="M7,10l5,5l5,-5z" />
         </vector>
         EOF
 
@@ -302,11 +316,14 @@ jobs:
         import android.view.ViewGroup;
         import android.view.Window;
         import android.view.WindowInsets;
-        import android.view.WindowInsetsController;
         import android.view.WindowManager;
+        import android.widget.ArrayAdapter;
         import android.widget.Button;
+        import android.widget.FrameLayout;
+        import android.widget.ImageView;
         import android.widget.LinearLayout;
         import android.widget.ScrollView;
+        import android.widget.Spinner;
         import android.widget.TextView;
         import android.widget.Toast;
 
@@ -325,17 +342,17 @@ jobs:
             private static final int C_FIELD = 0xFF0F131C;
             private static final int C_CYAN = 0xFF00E5FF;
             private static final int C_MUTED = 0xFF7A889B;
+            private static final int C_WHITE = 0xFFF0F4F8;
 
-            private final String[] resLabels = {"480p", "720p", "1080p"};
-            private final int[] resValues = {480, 720, 1080};
-            private final String[] fpsLabels = {"24", "30", "60"};
-            private final int[] fpsValues = {24, 30, 60};
-            private final String[] bitLabels = {"2", "4", "8", "12", "16"};
-            private final int[] bitValues = {2, 4, 8, 12, 16};
+            private final String[] resLabels = {"240p", "360p", "480p", "720p (HD)", "1080p (Full HD)", "1440p (2K)", "2160p (4K)"};
+            private final int[] resValues = {240, 360, 480, 720, 1080, 1440, 2160};
+            private final int[] fpsValues = {10, 15, 20, 24, 25, 30, 45, 50, 60, 72, 90, 120};
+            private final int[] bitValues = {1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30, 40, 50, 60, 80, 100};
             private final String[] audioLabels = {"Device audio", "Device + Mic"};
             private final String[] oriLabels = {"Auto", "Landscape", "Portrait"};
 
-            private Seg segRes, segFps, segBit, segAudio, segOri;
+            private DD ddRes, ddFps, ddBit;
+            private Seg segAudio, segOri;
             private SharedPreferences prefs;
             private float density;
             private boolean audioDenied = false;
@@ -364,18 +381,92 @@ jobs:
                 return 3;
             }
 
+            private TextView label(LinearLayout parent, String text) {
+                TextView lb = new TextView(this);
+                lb.setText(text);
+                lb.setTextColor(C_MUTED);
+                lb.setTextSize(11);
+                lb.setLetterSpacing(0.1f);
+                lb.setPadding(dp(2), dp(16), 0, dp(6));
+                parent.addView(lb);
+                return lb;
+            }
+
+            private String[] numbered(int[] vals, String suffix) {
+                String[] out = new String[vals.length];
+                for (int i = 0; i < vals.length; i++) out[i] = vals[i] + suffix;
+                return out;
+            }
+
+            // Dropdown selector
+            private class DD {
+                final Spinner sp;
+                final int[] vals;
+
+                DD(LinearLayout parent, String title, String[] labels, int[] vals, int selValue) {
+                    this.vals = vals;
+                    label(parent, title);
+
+                    FrameLayout frame = new FrameLayout(MainActivity.this);
+                    sp = new Spinner(MainActivity.this);
+                    ArrayAdapter<String> ad = new ArrayAdapter<String>(MainActivity.this,
+                            android.R.layout.simple_spinner_item, labels) {
+                        @Override
+                        public View getView(int pos, View cv, ViewGroup p) {
+                            TextView t = (TextView) super.getView(pos, cv, p);
+                            t.setTextColor(C_WHITE);
+                            t.setTextSize(16);
+                            t.setGravity(Gravity.CENTER_VERTICAL);
+                            t.setMinHeight(dp(50));
+                            t.setPadding(dp(14), 0, dp(44), 0);
+                            return t;
+                        }
+
+                        @Override
+                        public View getDropDownView(int pos, View cv, ViewGroup p) {
+                            TextView t = (TextView) super.getDropDownView(pos, cv, p);
+                            t.setTextColor(C_WHITE);
+                            t.setTextSize(16);
+                            t.setBackgroundColor(C_CARD);
+                            t.setPadding(dp(16), dp(12), dp(16), dp(12));
+                            return t;
+                        }
+                    };
+                    ad.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                    sp.setAdapter(ad);
+                    int idx = 0;
+                    for (int i = 0; i < vals.length; i++) {
+                        if (vals[i] == selValue) idx = i;
+                    }
+                    sp.setSelection(idx);
+                    sp.setBackground(rounded(C_FIELD, 14, C_LINE));
+                    sp.setPopupBackgroundDrawable(rounded(C_CARD, 12, C_LINE));
+                    frame.addView(sp, new FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+
+                    ImageView arrow = new ImageView(MainActivity.this);
+                    arrow.setImageResource(R.drawable.ic_arrow);
+                    FrameLayout.LayoutParams alp = new FrameLayout.LayoutParams(
+                            dp(24), dp(24), Gravity.END | Gravity.CENTER_VERTICAL);
+                    alp.rightMargin = dp(12);
+                    frame.addView(arrow, alp);
+
+                    parent.addView(frame, new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                }
+
+                int value() {
+                    return vals[sp.getSelectedItemPosition()];
+                }
+            }
+
+            // Tap selector for short option lists
             private class Seg {
                 int sel;
                 final TextView[] tabs;
 
-                Seg(LinearLayout parent, String label, String[] items, int initial) {
-                    TextView lb = new TextView(MainActivity.this);
-                    lb.setText(label);
-                    lb.setTextColor(C_MUTED);
-                    lb.setTextSize(11);
-                    lb.setLetterSpacing(0.1f);
-                    lb.setPadding(dp(2), dp(16), 0, dp(6));
-                    parent.addView(lb);
+                Seg(LinearLayout parent, String title, String[] items, int initial) {
+                    label(parent, title);
 
                     LinearLayout row = new LinearLayout(MainActivity.this);
                     row.setOrientation(LinearLayout.HORIZONTAL);
@@ -423,9 +514,14 @@ jobs:
                 prefs = getSharedPreferences("settings", MODE_PRIVATE);
                 density = getResources().getDisplayMetrics().density;
 
+                // Edge-to-edge with a transparent status bar and navigation bar
                 Window win = getWindow();
+                win.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
                 win.setStatusBarColor(Color.TRANSPARENT);
                 win.setNavigationBarColor(Color.TRANSPARENT);
+                if (Build.VERSION.SDK_INT >= 29) {
+                    win.setNavigationBarContrastEnforced(false);
+                }
                 if (Build.VERSION.SDK_INT >= 28) {
                     WindowManager.LayoutParams wlp = win.getAttributes();
                     wlp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
@@ -433,11 +529,16 @@ jobs:
                 }
                 if (Build.VERSION.SDK_INT >= 30) {
                     win.setDecorFitsSystemWindows(false);
+                } else {
+                    win.getDecorView().setSystemUiVisibility(
+                            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
                 }
 
                 LinearLayout root = new LinearLayout(this);
                 root.setOrientation(LinearLayout.VERTICAL);
-                root.setPadding(dp(20), dp(28), dp(20), dp(28));
+                root.setPadding(dp(20), dp(24), dp(20), dp(28));
 
                 TextView title = new TextView(this);
                 title.setText("GAME RECORDER");
@@ -462,9 +563,9 @@ jobs:
                 head.setLetterSpacing(0.12f);
                 card.addView(head);
 
-                segRes = new Seg(card, "RESOLUTION", resLabels, prefs.getInt("res", 1));
-                segFps = new Seg(card, "FPS", fpsLabels, prefs.getInt("fps", 1));
-                segBit = new Seg(card, "BITRATE (MBPS)", bitLabels, prefs.getInt("bit", 2));
+                ddRes = new DD(card, "RESOLUTION", resLabels, resValues, prefs.getInt("res_v", 720));
+                ddFps = new DD(card, "FPS", numbered(fpsValues, " fps"), fpsValues, prefs.getInt("fps_v", 30));
+                ddBit = new DD(card, "BITRATE", numbered(bitValues, " Mbps"), bitValues, prefs.getInt("bit_v", 8));
                 if (Build.VERSION.SDK_INT >= 29) {
                     segAudio = new Seg(card, "AUDIO", audioLabels, prefs.getInt("audio", 0));
                 }
@@ -514,37 +615,13 @@ jobs:
                     return ins;
                 });
                 setContentView(sv);
-                applyBars();
-            }
-
-            private void applyBars() {
-                Window w = getWindow();
-                if (Build.VERSION.SDK_INT >= 30) {
-                    WindowInsetsController c = w.getInsetsController();
-                    if (c != null) {
-                        c.hide(WindowInsets.Type.statusBars());
-                        c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                    }
-                } else {
-                    w.getDecorView().setSystemUiVisibility(
-                            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                                    | View.SYSTEM_UI_FLAG_FULLSCREEN);
-                }
-            }
-
-            @Override
-            public void onWindowFocusChanged(boolean hasFocus) {
-                super.onWindowFocusChanged(hasFocus);
-                if (hasFocus) applyBars();
             }
 
             private void saveSettings() {
                 SharedPreferences.Editor e = prefs.edit()
-                        .putInt("res", segRes.sel)
-                        .putInt("fps", segFps.sel)
-                        .putInt("bit", segBit.sel)
+                        .putInt("res_v", ddRes.value())
+                        .putInt("fps_v", ddFps.value())
+                        .putInt("bit_v", ddBit.value())
                         .putInt("ori", segOri.sel);
                 if (segAudio != null) e.putInt("audio", segAudio.sel);
                 e.apply();
@@ -609,9 +686,9 @@ jobs:
                     i.setAction(RecorderService.ACTION_START);
                     i.putExtra("code", resultCode);
                     i.putExtra("data", data);
-                    i.putExtra("res", resValues[segRes.sel]);
-                    i.putExtra("fps", fpsValues[segFps.sel]);
-                    i.putExtra("mbps", bitValues[segBit.sel]);
+                    i.putExtra("res", ddRes.value());
+                    i.putExtra("fps", ddFps.value());
+                    i.putExtra("mbps", ddBit.value());
                     i.putExtra("audio", audioDenied ? 0 : audioMode());
                     i.putExtra("ori", segOri.sel);
                     if (Build.VERSION.SDK_INT >= 26) {
@@ -642,7 +719,9 @@ jobs:
         import android.media.projection.MediaProjectionManager;
         import android.net.Uri;
         import android.os.Build;
+        import android.os.Handler;
         import android.os.IBinder;
+        import android.os.Looper;
         import android.widget.Toast;
 
         import java.util.Locale;
@@ -657,9 +736,14 @@ jobs:
             private static final String CHANNEL_ID = "rec_channel";
             private static final int NOTIF_ID = 1;
             private static final int SAVED_ID = 2;
+            private static final int AUTO_COUNTDOWN_SEC = 4;
 
+            private final Handler handler = new Handler(Looper.getMainLooper());
             private Recorder rec;
             private boolean paused = false;
+            private boolean starting = false;
+            private int countdown = 0;
+            private Runnable tick;
             private long runStart = 0, accum = 0;
             private String summary = "";
 
@@ -677,7 +761,7 @@ jobs:
                 }
                 switch (action) {
                     case ACTION_START:
-                        if (rec == null) startRecording(intent);
+                        if (rec == null && !starting) startRecording(intent);
                         break;
                     case ACTION_PAUSE:
                         if (rec != null && !paused) {
@@ -704,23 +788,23 @@ jobs:
                 return START_NOT_STICKY;
             }
 
-            private void startRecording(Intent intent) {
+            private void startRecording(final Intent intent) {
                 NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
                 if (Build.VERSION.SDK_INT >= 26) {
                     nm.createNotificationChannel(new NotificationChannel(
                             CHANNEL_ID, "Recording", NotificationManager.IMPORTANCE_LOW));
                 }
 
-                int audio = intent.getIntExtra("audio", 0);
+                final int audio = intent.getIntExtra("audio", 0);
+                final int ori = intent.getIntExtra("ori", 0);
                 boolean mic = audio == 2 || audio == 3;
                 summary = intent.getIntExtra("res", 720) + "p | " + intent.getIntExtra("fps", 30) + " fps | "
                         + intent.getIntExtra("mbps", 8) + " Mbps" + (mic ? " | Mic" : "");
                 paused = false;
                 accum = 0;
-                runStart = System.currentTimeMillis();
+                starting = true;
+                countdown = ori == 0 ? AUTO_COUNTDOWN_SEC : 0;
 
-                Recorder r = null;
-                MediaProjection mp = null;
                 try {
                     Notification n = buildNotification();
                     if (Build.VERSION.SDK_INT >= 29) {
@@ -730,7 +814,38 @@ jobs:
                     } else {
                         startForeground(NOTIF_ID, n);
                     }
+                } catch (Exception e) {
+                    starting = false;
+                    Toast.makeText(this, "Could not start recording: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    stopSelf();
+                    return;
+                }
 
+                if (countdown > 0) {
+                    tick = new Runnable() {
+                        @Override
+                        public void run() {
+                            countdown--;
+                            if (countdown > 0) {
+                                updateNotification();
+                                handler.postDelayed(this, 1000);
+                            } else {
+                                tick = null;
+                                beginRecording(intent, audio, ori);
+                            }
+                        }
+                    };
+                    handler.postDelayed(tick, 1000);
+                } else {
+                    beginRecording(intent, audio, ori);
+                }
+            }
+
+            private void beginRecording(Intent intent, int audio, int ori) {
+                starting = false;
+                Recorder r = null;
+                MediaProjection mp = null;
+                try {
                     MediaProjectionManager mpm = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
                     Intent data = (Intent) intent.getParcelableExtra("data");
                     mp = mpm.getMediaProjection(intent.getIntExtra("code", 0), data);
@@ -740,7 +855,7 @@ jobs:
                             intent.getIntExtra("fps", 30),
                             intent.getIntExtra("mbps", 8) * 1000000,
                             audio,
-                            intent.getIntExtra("ori", 0),
+                            ori,
                             this::stopAndSave);
                     r.start();
                     rec = r;
@@ -775,32 +890,46 @@ jobs:
 
             private Notification buildNotification() {
                 boolean ph = paused;
-                Notification.Action toggle = new Notification.Action.Builder(
-                        ph ? android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause,
-                        ph ? "Resume" : "Pause",
-                        action(ph ? ACTION_RESUME : ACTION_PAUSE, 10)).build();
                 Notification.Action stop = new Notification.Action.Builder(
                         android.R.drawable.ic_menu_save,
-                        "Stop & Save",
+                        starting ? "Cancel" : "Stop & Save",
                         action(ACTION_STOP, 11)).build();
 
-                String text = summary;
-                if (ph) {
+                String title;
+                String text;
+                int color;
+                if (starting) {
+                    title = "Starting in " + countdown + " sec";
+                    text = "Open your game now";
+                    color = 0xFFFFD600;
+                } else if (ph) {
                     long sec = accum / 1000;
+                    title = "Paused";
                     text = String.format(Locale.US, "Paused at %02d:%02d | ", sec / 60, sec % 60) + summary;
+                    color = 0xFFFFAB00;
+                } else {
+                    title = "Recording";
+                    text = summary;
+                    color = 0xFFFF1744;
                 }
 
                 Notification.Builder nb = newBuilder()
                         .setSmallIcon(R.drawable.ic_stat_rec)
-                        .setColor(ph ? 0xFFFFAB00 : 0xFFFF1744)
+                        .setColor(color)
                         .setSubText("Game Recorder")
-                        .setContentTitle(ph ? "Paused" : "Recording")
+                        .setContentTitle(title)
                         .setContentText(text)
                         .setOngoing(true)
-                        .setOnlyAlertOnce(true)
-                        .addAction(toggle)
-                        .addAction(stop);
-                if (!ph) {
+                        .setOnlyAlertOnce(true);
+                if (!starting) {
+                    Notification.Action toggle = new Notification.Action.Builder(
+                            ph ? android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause,
+                            ph ? "Resume" : "Pause",
+                            action(ph ? ACTION_RESUME : ACTION_PAUSE, 10)).build();
+                    nb.addAction(toggle);
+                }
+                nb.addAction(stop);
+                if (!starting && !ph) {
                     nb.setShowWhen(true).setUsesChronometer(true).setWhen(runStart - accum);
                 } else {
                     nb.setShowWhen(false);
@@ -816,6 +945,12 @@ jobs:
                 final Recorder r = rec;
                 rec = null;
                 if (r == null) {
+                    if (starting) {
+                        if (tick != null) handler.removeCallbacks(tick);
+                        tick = null;
+                        starting = false;
+                        stopForeground(true);
+                    }
                     stopSelf();
                     return;
                 }
@@ -853,6 +988,8 @@ jobs:
 
             @Override
             public void onDestroy() {
+                if (tick != null) handler.removeCallbacks(tick);
+                tick = null;
                 Recorder r = rec;
                 rec = null;
                 if (r != null) {
@@ -893,6 +1030,7 @@ jobs:
         import android.os.Process;
         import android.provider.MediaStore;
         import android.util.DisplayMetrics;
+        import android.util.Range;
         import android.view.Display;
         import android.view.Surface;
 
@@ -912,7 +1050,9 @@ jobs:
             private final MediaProjection mp;
             private final Runnable onProjectionStopped;
             private int w, h;
-            private final int dpi, fps, bitrate, audioMode;
+            private final int dpi, bitrate, audioMode;
+            private int fps;
+            private float refresh = 60f;
 
             private MediaCodec vEnc, aEnc;
             private Surface surface;
@@ -954,17 +1094,12 @@ jobs:
                 Display d = ((DisplayManager) ctx.getSystemService(Context.DISPLAY_SERVICE))
                         .getDisplay(Display.DEFAULT_DISPLAY);
                 d.getRealMetrics(dm);
-                double ratio = (double) Math.max(dm.widthPixels, dm.heightPixels)
-                        / Math.min(dm.widthPixels, dm.heightPixels);
-                int s = align16(shortSide);
-                int l = align16((int) Math.round(shortSide * ratio));
-                double area = (double) s * l;
-                double maxArea = 1920.0 * 1088.0;
-                if (area > maxArea) {
-                    double k = Math.sqrt(maxArea / area);
-                    s = align16((int) (s * k));
-                    l = align16((int) (l * k));
-                }
+                try { refresh = d.getRefreshRate(); } catch (Exception ignored) { }
+                int nativeShort = Math.min(dm.widthPixels, dm.heightPixels);
+                int target = Math.min(shortSide, nativeShort);
+                double ratio = (double) Math.max(dm.widthPixels, dm.heightPixels) / nativeShort;
+                int s = align16(target);
+                int l = align16((int) Math.round(target * ratio));
                 boolean landscape = ori == 1 || (ori == 0 && dm.widthPixels > dm.heightPixels);
                 this.w = landscape ? l : s;
                 this.h = landscape ? s : l;
@@ -983,21 +1118,7 @@ jobs:
                 openOutput();
 
                 // ---- video encoder ----
-                vEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
-                MediaCodecInfo.CodecCapabilities caps = null;
-                try {
-                    caps = vEnc.getCodecInfo().getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC);
-                    fitSize(caps.getVideoCapabilities());
-                } catch (Exception ignored) { }
-                try {
-                    vEnc.configure(videoFormat(caps, true), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-                } catch (Exception e) {
-                    try { vEnc.release(); } catch (Exception ignored) { }
-                    vEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
-                    vEnc.configure(videoFormat(caps, false), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-                }
-                surface = vEnc.createInputSurface();
-                vEnc.start();
+                initVideoEncoder();
 
                 // ---- audio (optional, never blocks video) ----
                 setupAudio();
@@ -1046,15 +1167,48 @@ jobs:
                 }
             }
 
+            private void initVideoEncoder() throws Exception {
+                Exception last = null;
+                for (int attempt = 0; attempt < 4; attempt++) {
+                    for (int mode = 0; mode < 2; mode++) {
+                        try {
+                            vEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+                            MediaCodecInfo.CodecCapabilities caps = null;
+                            try {
+                                caps = vEnc.getCodecInfo().getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC);
+                                if (mode == 0) fitSize(caps.getVideoCapabilities());
+                            } catch (Exception ignored) { }
+                            vEnc.configure(videoFormat(caps, mode == 0), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+                            surface = vEnc.createInputSurface();
+                            vEnc.start();
+                            return;
+                        } catch (Exception e) {
+                            last = e;
+                            try { if (vEnc != null) vEnc.release(); } catch (Exception ignored) { }
+                            vEnc = null;
+                            surface = null;
+                        }
+                    }
+                    w = Math.max(16, ((int) (w * 0.75)) / 16 * 16);
+                    h = Math.max(16, ((int) (h * 0.75)) / 16 * 16);
+                }
+                throw last != null ? last : new Exception("Video encoder error");
+            }
+
+            // Keeps the chosen resolution when the encoder supports it (lowering fps if needed),
+            // otherwise scales the size down until the encoder accepts it.
             private void fitSize(MediaCodecInfo.VideoCapabilities vc) {
                 for (int i = 0; i < 12; i++) {
-                    boolean ok;
                     try {
-                        ok = vc.isSizeSupported(w, h) && vc.areSizeAndRateSupported(w, h, fps);
+                        if (vc.isSizeSupported(w, h)) {
+                            Range<Double> r = vc.getSupportedFrameRatesFor(w, h);
+                            int maxFps = (int) Math.floor(r.getUpper());
+                            if (maxFps >= 1 && fps > maxFps) fps = maxFps;
+                            return;
+                        }
                     } catch (Exception e) {
-                        ok = true;
+                        return;
                     }
-                    if (ok) return;
                     w = Math.max(16, ((int) (w * 0.92)) / 16 * 16);
                     h = Math.max(16, ((int) (h * 0.92)) / 16 * 16);
                 }
@@ -1074,6 +1228,9 @@ jobs:
                     vf.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 500000L);
                     vf.setInteger(MediaFormat.KEY_PRIORITY, 0);
                     vf.setInteger(MediaFormat.KEY_OPERATING_RATE, fps);
+                    if (fps < 0.75f * refresh) {
+                        vf.setInteger("max-fps-to-encoder", fps);
+                    }
                     try {
                         if (caps != null) {
                             if (caps.getEncoderCapabilities()
