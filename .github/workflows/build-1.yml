@@ -426,8 +426,8 @@ jobs:
                                       try {
                                           unzip(http("GET", "/repos/" + j.getString("full_name") + "/zipball").inputStream, dir)
                                           File(dir, ".gab").writeText(j.getString("full_name") + "\n" + j.getString("default_branch"))
-                                      } catch (e: Exception) { dir.deleteRecursively(); throw e }
-                                      ui { browse(dir, dir) }
+                                          ui { browse(dir, dir) } // Auto open repo after clone
+                                      } catch (e: Exception) { dir.deleteRecursively(); ui { repos() }; throw e }
                                   }
                               }
                               c.addView(b); add(l, c)
@@ -444,7 +444,12 @@ jobs:
                   val l = page(repo.name + (if (rel.isEmpty()) "" else "/$rel"), btn("Repos") { repos() })
                   onBack = { if (dir != repo) browse(repo, dir.parentFile!!) else repos() }
                   l.addView(bar(
-                      btn("New file") { ask("File name") { if (it.isNotEmpty()) { File(dir, it).createNewFile(); browse(repo, dir) } } },
+                      btn("New file") { ask("File name") { if (it.isNotEmpty()) { 
+                          val newFile = File(dir, it)
+                          newFile.parentFile?.mkdirs() // Create nested folders if any
+                          newFile.createNewFile()
+                          browse(repo, dir) 
+                      } } },
                       btn("New folder") { ask("Folder name") { if (it.isNotEmpty()) { File(dir, it).mkdirs(); browse(repo, dir) } } },
                       btn("Import") { pickRepo = repo; pickDir = dir; importFile() },
                       btn("Search") { ask("Search files") { if (it.isNotEmpty()) search(repo, it) } },
@@ -675,8 +680,8 @@ jobs:
               fun draw(l: LinearLayout, r: JSONObject, js: JSONArray) {
                   val sv = l.parent as? ScrollView; val y = sv?.scrollY ?: 0
                   l.removeAllViews()
-
-                  // Loop Jobs and internal steps dynamically, each step as a separate box
+                  
+                  // Loop Jobs and create separate rounded boxes for each step
                   for (k in 0 until js.length()) {
                       val j = js.getJSONObject(k)
                       val id = j.getLong("id")
@@ -692,10 +697,11 @@ jobs:
                               val isFailed = stConcl == "failure"
                               val isCompleted = stStatus == "completed"
                               
-                              val stepCard = LinearLayout(this).apply {
+                              // Separate rounded box for each step
+                              val stepBox = LinearLayout(this).apply {
                                   orientation = LinearLayout.VERTICAL
-                                  background = box(col(R.color.card), col(R.color.stroke), 12)
-                                  layoutParams = lp(-1, -2).apply { bottomMargin = dp(8) }
+                                  background = box(col(R.color.card), col(R.color.stroke), 12) 
+                                  layoutParams = lp(-1, -2).apply { setMargins(dp(2), dp(6), dp(2), dp(6)) }
                                   clipToOutline = true
                               }
                               
@@ -704,49 +710,56 @@ jobs:
                                   setPadding(dp(16), dp(14), dp(16), dp(14))
                               }
                               
-                              // Left Side Status (Spinner or Text)
+                              // Left Icon: Spinner if running, tick/cross if completed
                               if (isRunning) {
                                   stepRow.addView(ProgressBar(this).apply { 
                                       isIndeterminate = true
                                       layoutParams = lp(dp(16), dp(16)).apply { rightMargin = dp(12) }
                                   })
                               } else if (isCompleted) {
-                                  val txt = if (stConcl == "success" || stConcl == "skipped") "Completed" else "Failed"
+                                  val icon = if (stConcl == "success" || stConcl == "skipped") "✓" else "✗"
                                   val colId = if (stConcl == "success" || stConcl == "skipped") R.color.ok else R.color.bad
-                                  stepRow.addView(tv(txt, 13, true, colId).apply { setPadding(0, 0, dp(12), 0) })
+                                  stepRow.addView(tv(icon, 15, true, colId).apply { setPadding(0, 0, dp(12), 0) })
                               } else {
                                   stepRow.addView(tv("○", 15, true, R.color.muted).apply { setPadding(0, 0, dp(12), 0) })
                               }
                               
-                              // Step Name
+                              // Step name
                               val nameColor = if (isRunning || isFailed) R.color.fg else R.color.muted
                               stepRow.addView(tv(st.getString("name"), 14, isRunning, nameColor).apply { setSingleLine() }, lp(0, -2, 1f))
                               
-                              stepCard.addView(stepRow)
+                              // Right Status Text (Completed / Failed)
+                              if (isCompleted) {
+                                  val txt = when(stConcl) { "success" -> "Completed"; "failure" -> "Failed"; "skipped" -> "Skipped"; else -> stConcl }
+                                  val txtColId = if (stConcl == "success") R.color.ok else if (stConcl == "failure") R.color.bad else R.color.muted
+                                  stepRow.addView(tv(txt, 12, true, txtColId))
+                              }
+
+                              stepBox.addView(stepRow)
                               
-                              // Live Logs below currently running step (Auto-hides on completion)
+                              // Show Live Logs below currently running or failed step
                               if (isRunning || isFailed) {
                                   val lg = logMap[id]
                                   if (!lg.isNullOrEmpty()) {
-                                      stepCard.addView(View(this).apply { setBackgroundColor(col(R.color.stroke)); layoutParams = lp(-1, dp(1)) })
-                                      stepCard.addView(tv(lg, 11).apply {
+                                      stepBox.addView(View(this).apply { setBackgroundColor(col(R.color.stroke)); layoutParams = lp(-1, dp(1)) })
+                                      stepBox.addView(tv(lg, 11).apply {
                                           typeface = Typeface.MONOSPACE
-                                          setTextColor(Color.parseColor("#E6EDF3"))
-                                          setBackgroundColor(Color.parseColor("#010409")) // Dark Terminal Style
+                                          setTextColor(col(R.color.fg))
+                                          setBackgroundColor(col(R.color.bg))
                                           setPadding(dp(16), dp(12), dp(16), dp(16))
                                           setHorizontallyScrolling(true)
                                       })
                                   }
                               }
                               
-                              add(l, stepCard)
+                              l.addView(stepBox)
                           }
                       } else {
                           // Job is queued, steps array is missing
-                          val stepCard = LinearLayout(this).apply {
+                          val stepBox = LinearLayout(this).apply {
                               orientation = LinearLayout.VERTICAL
                               background = box(col(R.color.card), col(R.color.stroke), 12)
-                              layoutParams = lp(-1, -2).apply { bottomMargin = dp(8) }
+                              layoutParams = lp(-1, -2).apply { setMargins(dp(2), dp(6), dp(2), dp(6)) }
                           }
                           val stepRow = LinearLayout(this).apply {
                               gravity = Gravity.CENTER_VERTICAL
@@ -754,8 +767,8 @@ jobs:
                           }
                           stepRow.addView(tv("○", 15, true, R.color.muted).apply { setPadding(0, 0, dp(12), 0) })
                           stepRow.addView(tv(j.getString("name"), 14, false, R.color.muted).apply { setSingleLine() }, lp(0, -2, 1f))
-                          stepCard.addView(stepRow)
-                          add(l, stepCard)
+                          stepBox.addView(stepRow)
+                          l.addView(stepBox)
                       }
                   }
                   
@@ -767,6 +780,9 @@ jobs:
                   // Main Build Process Page
                   val l = page("Build Process", btn("Close") { live++; browse(repo, repo) })
                   onBack = { live++; browse(repo, repo) }
+                  
+                  val w = card(); w.addView(ProgressBar(this).apply { isIndeterminate = true; layoutParams = lp(dp(16), dp(16)).apply { rightMargin = dp(10) } })
+                  w.addView(tv("Triggering GitHub Action workflow...", 14, false, R.color.muted)); add(l, w)
                   
                   bg {
                       for (i in 0 until 600) {
@@ -810,7 +826,8 @@ jobs:
               }
 
               fun logs(u: String) {
-                  val d = dlg("Downloading Logs", ProgressBar(this).apply { isIndeterminate = true; setPadding(dp(20), dp(20), dp(20), dp(20)) }, null, null)
+                  // Dialog to show while fetching logs
+                  val loadDlg = dlg("Fetching Logs...", ProgressBar(this).apply { setPadding(dp(16),dp(16),dp(16),dp(16)) }, null, null)
                   bg {
                       val sb = StringBuilder()
                       try {
@@ -821,12 +838,9 @@ jobs:
                                   e = z.nextEntry
                               }
                           }
-                      } catch(e: Exception) {
-                          ui { d.dismiss(); alert("Error", e.message ?: "Failed") }
-                          return@bg
-                      }
+                      } catch(e: Exception) {}
                       ui {
-                          d.dismiss()
+                          loadDlg.dismiss()
                           val t = TextView(this).apply { text = sb; textSize = 11f; setTextIsSelectable(true); typeface = Typeface.MONOSPACE; setTextColor(col(R.color.fg)); setPadding(dp(16), dp(12), dp(16), dp(12)) }
                           dlg("Raw logs", ScrollView(this).apply { addView(t) }, "Copy all", "Close", true) { (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("log", sb)); toast("Copied") }
                       }
