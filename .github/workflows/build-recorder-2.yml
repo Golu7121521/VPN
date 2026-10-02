@@ -1,4 +1,4 @@
-name: Build Game Recorder APK (arm64)
+name: Build Game Recorder (APK + AAB)
 
 on:
   workflow_dispatch:
@@ -8,6 +8,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
     steps:
     - name: Checkout Repository
@@ -19,10 +25,17 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Set up Gradle 8.4
+    - name: Set up Gradle
       uses: gradle/actions/setup-gradle@v4
       with:
-        gradle-version: '8.4'
+        gradle-version: '8.14.3'
+
+    - name: Prepare release key (only if secrets are set)
+      run: |
+        if [ -n "$KEYSTORE_BASE64" ]; then
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+        fi
 
     - name: Generate project files
       run: |
@@ -52,7 +65,7 @@ jobs:
 
         cat << 'EOF' > build.gradle
         plugins {
-            id 'com.android.application' version '8.2.2' apply false
+            id 'com.android.application' version '8.11.1' apply false
         }
         EOF
 
@@ -62,18 +75,37 @@ jobs:
             id 'com.android.application'
         }
 
+        def ksFile = System.getenv("KEYSTORE_FILE")
+
         android {
             namespace 'com.gamerec.lite'
-            compileSdk 34
+            compileSdk 36
 
             defaultConfig {
                 applicationId "com.gamerec.lite"
-                minSdk 29
-                targetSdk 34
-                versionCode 5
-                versionName "1.4"
-                ndk {
-                    abiFilters 'arm64-v8a'
+                minSdk 21
+                targetSdk 36
+                versionCode 6
+                versionName "2.0"
+            }
+
+            signingConfigs {
+                release {
+                    if (ksFile) {
+                        storeFile file(ksFile)
+                        storePassword System.getenv("KEYSTORE_PASSWORD")
+                        keyAlias System.getenv("KEY_ALIAS")
+                        keyPassword System.getenv("KEY_PASSWORD")
+                    }
+                }
+            }
+
+            buildTypes {
+                release {
+                    minifyEnabled true
+                    shrinkResources true
+                    proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                    signingConfig ksFile ? signingConfigs.release : signingConfigs.debug
                 }
             }
 
@@ -85,14 +117,6 @@ jobs:
             packaging {
                 resources {
                     excludes += ['/META-INF/**', '/kotlin/**', 'DebugProbesKt.bin']
-                }
-            }
-
-            buildTypes {
-                release {
-                    minifyEnabled true
-                    proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-                    signingConfig signingConfigs.debug
                 }
             }
 
@@ -115,24 +139,133 @@ jobs:
         -overloadaggressively
         EOF
 
+        mkdir -p app/src/main/res/values
+        cat << 'EOF' > app/src/main/res/values/ic_colors.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <resources>
+            <color name="ic_bg">#0B0E14</color>
+        </resources>
+        EOF
+
+        mkdir -p app/src/main/res/drawable
+        cat << 'EOF' > app/src/main/res/drawable/ic_fg.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <vector xmlns:android="http://schemas.android.com/apk/res/android"
+            android:width="108dp"
+            android:height="108dp"
+            android:viewportWidth="108"
+            android:viewportHeight="108">
+            <path
+                android:fillColor="#00000000"
+                android:pathData="M28,54a26,26 0 1,0 52,0a26,26 0 1,0 -52,0z"
+                android:strokeColor="#00E5FF"
+                android:strokeWidth="5" />
+            <path
+                android:fillColor="#FF1744"
+                android:pathData="M40,54a14,14 0 1,0 28,0a14,14 0 1,0 -28,0z" />
+        </vector>
+        EOF
+
+        mkdir -p app/src/main/res/drawable
+        cat << 'EOF' > app/src/main/res/drawable/ic_mono.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <vector xmlns:android="http://schemas.android.com/apk/res/android"
+            android:width="108dp"
+            android:height="108dp"
+            android:viewportWidth="108"
+            android:viewportHeight="108">
+            <path
+                android:fillColor="#00000000"
+                android:pathData="M28,54a26,26 0 1,0 52,0a26,26 0 1,0 -52,0z"
+                android:strokeColor="#000000"
+                android:strokeWidth="5" />
+            <path
+                android:fillColor="#000000"
+                android:pathData="M40,54a14,14 0 1,0 28,0a14,14 0 1,0 -28,0z" />
+        </vector>
+        EOF
+
+        mkdir -p app/src/main/res/drawable
+        cat << 'EOF' > app/src/main/res/drawable/ic_stat_rec.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <vector xmlns:android="http://schemas.android.com/apk/res/android"
+            android:width="24dp"
+            android:height="24dp"
+            android:viewportWidth="24"
+            android:viewportHeight="24">
+            <path
+                android:fillColor="#00000000"
+                android:pathData="M3,12a9,9 0 1,0 18,0a9,9 0 1,0 -18,0z"
+                android:strokeColor="#FFFFFF"
+                android:strokeWidth="2" />
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M8,12a4,4 0 1,0 8,0a4,4 0 1,0 -8,0z" />
+        </vector>
+        EOF
+
+        mkdir -p app/src/main/res/mipmap-anydpi-v26
+        cat << 'EOF' > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+            <background android:drawable="@color/ic_bg" />
+            <foreground android:drawable="@drawable/ic_fg" />
+            <monochrome android:drawable="@drawable/ic_mono" />
+        </adaptive-icon>
+        EOF
+
+        mkdir -p app/src/main/res/mipmap-anydpi
+        cat << 'EOF' > app/src/main/res/mipmap-anydpi/ic_launcher.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <vector xmlns:android="http://schemas.android.com/apk/res/android"
+            android:width="108dp"
+            android:height="108dp"
+            android:viewportWidth="108"
+            android:viewportHeight="108">
+            <path
+                android:fillColor="#0B0E14"
+                android:pathData="M24,0H84A24,24 0 0 1 108,24V84A24,24 0 0 1 84,108H24A24,24 0 0 1 0,84V24A24,24 0 0 1 24,0Z" />
+            <path
+                android:fillColor="#00000000"
+                android:pathData="M24,54a30,30 0 1,0 60,0a30,30 0 1,0 -60,0z"
+                android:strokeColor="#00E5FF"
+                android:strokeWidth="6" />
+            <path
+                android:fillColor="#FF1744"
+                android:pathData="M38,54a16,16 0 1,0 32,0a16,16 0 1,0 -32,0z" />
+        </vector>
+        EOF
+
         mkdir -p app/src/main
         cat << 'EOF' > app/src/main/AndroidManifest.xml
         <?xml version="1.0" encoding="utf-8"?>
         <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
             <uses-permission android:name="android.permission.RECORD_AUDIO" />
             <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
             <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
             <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
             <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+            <uses-permission
+                android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+                android:maxSdkVersion="28" />
+
+            <uses-feature
+                android:name="android.hardware.microphone"
+                android:required="false" />
+            <uses-feature
+                android:name="android.hardware.touchscreen"
+                android:required="false" />
 
             <application
                 android:allowBackup="false"
-                android:icon="@android:drawable/ic_menu_camera"
+                android:icon="@mipmap/ic_launcher"
                 android:label="Game Recorder"
                 android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
                 <activity
                     android:name=".MainActivity"
+                    android:configChanges="orientation|screenSize|keyboardHidden"
                     android:exported="true">
                     <intent-filter>
                         <action android:name="android.intent.action.MAIN" />
@@ -158,6 +291,7 @@ jobs:
         import android.content.SharedPreferences;
         import android.content.pm.PackageManager;
         import android.graphics.Color;
+        import android.graphics.Insets;
         import android.graphics.Typeface;
         import android.graphics.drawable.GradientDrawable;
         import android.media.projection.MediaProjectionManager;
@@ -204,6 +338,7 @@ jobs:
             private Seg segRes, segFps, segBit, segAudio, segOri;
             private SharedPreferences prefs;
             private float density;
+            private boolean audioDenied = false;
 
             private int dp(int v) {
                 return (int) (v * density + 0.5f);
@@ -215,6 +350,18 @@ jobs:
                 g.setCornerRadius(dp(radiusDp));
                 if (stroke != 0) g.setStroke(dp(1), stroke);
                 return g;
+            }
+
+            private boolean has(String perm) {
+                return Build.VERSION.SDK_INT < 23 || checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED;
+            }
+
+            // 1 = device audio, 2 = device + mic, 3 = mic only (Android 9 and below)
+            private int audioMode() {
+                if (Build.VERSION.SDK_INT >= 29) {
+                    return segAudio.sel == 1 ? 2 : 1;
+                }
+                return 3;
             }
 
             private class Seg {
@@ -280,9 +427,9 @@ jobs:
                 win.setStatusBarColor(Color.TRANSPARENT);
                 win.setNavigationBarColor(Color.TRANSPARENT);
                 if (Build.VERSION.SDK_INT >= 28) {
-                    WindowManager.LayoutParams lp = win.getAttributes();
-                    lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-                    win.setAttributes(lp);
+                    WindowManager.LayoutParams wlp = win.getAttributes();
+                    wlp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                    win.setAttributes(wlp);
                 }
                 if (Build.VERSION.SDK_INT >= 30) {
                     win.setDecorFitsSystemWindows(false);
@@ -298,14 +445,8 @@ jobs:
                 title.setTextSize(26);
                 title.setTypeface(Typeface.DEFAULT_BOLD);
                 title.setLetterSpacing(0.14f);
+                title.setPadding(0, 0, 0, dp(22));
                 root.addView(title);
-
-                TextView sub = new TextView(this);
-                sub.setText("Lightweight gameplay capture");
-                sub.setTextColor(C_MUTED);
-                sub.setTextSize(13);
-                sub.setPadding(0, dp(4), 0, dp(22));
-                root.addView(sub);
 
                 LinearLayout card = new LinearLayout(this);
                 card.setOrientation(LinearLayout.VERTICAL);
@@ -324,7 +465,9 @@ jobs:
                 segRes = new Seg(card, "RESOLUTION", resLabels, prefs.getInt("res", 1));
                 segFps = new Seg(card, "FPS", fpsLabels, prefs.getInt("fps", 1));
                 segBit = new Seg(card, "BITRATE (MBPS)", bitLabels, prefs.getInt("bit", 2));
-                segAudio = new Seg(card, "AUDIO", audioLabels, prefs.getInt("audio", 0));
+                if (Build.VERSION.SDK_INT >= 29) {
+                    segAudio = new Seg(card, "AUDIO", audioLabels, prefs.getInt("audio", 0));
+                }
                 segOri = new Seg(card, "ORIENTATION", oriLabels, prefs.getInt("ori", 0));
 
                 Button start = new Button(this);
@@ -351,12 +494,23 @@ jobs:
                         new int[]{C_BG1, C_BG2}));
                 sv.addView(root);
                 sv.setOnApplyWindowInsetsListener((v, ins) -> {
-                    int top = ins.getSystemWindowInsetTop();
-                    if (ins.getDisplayCutout() != null) {
-                        top = Math.max(top, ins.getDisplayCutout().getSafeInsetTop());
+                    int l, t, r, b;
+                    if (Build.VERSION.SDK_INT >= 30) {
+                        Insets in = ins.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                        l = in.left;
+                        t = in.top;
+                        r = in.right;
+                        b = in.bottom;
+                    } else {
+                        l = ins.getSystemWindowInsetLeft();
+                        t = ins.getSystemWindowInsetTop();
+                        r = ins.getSystemWindowInsetRight();
+                        b = ins.getSystemWindowInsetBottom();
+                        if (Build.VERSION.SDK_INT >= 28 && ins.getDisplayCutout() != null) {
+                            t = Math.max(t, ins.getDisplayCutout().getSafeInsetTop());
+                        }
                     }
-                    v.setPadding(ins.getSystemWindowInsetLeft(), top,
-                            ins.getSystemWindowInsetRight(), ins.getSystemWindowInsetBottom());
+                    v.setPadding(l, t, r, b);
                     return ins;
                 });
                 setContentView(sv);
@@ -387,13 +541,13 @@ jobs:
             }
 
             private void saveSettings() {
-                prefs.edit()
+                SharedPreferences.Editor e = prefs.edit()
                         .putInt("res", segRes.sel)
                         .putInt("fps", segFps.sel)
                         .putInt("bit", segBit.sel)
-                        .putInt("audio", segAudio.sel)
-                        .putInt("ori", segOri.sel)
-                        .apply();
+                        .putInt("ori", segOri.sel);
+                if (segAudio != null) e.putInt("audio", segAudio.sel);
+                e.apply();
             }
 
             @Override
@@ -404,13 +558,16 @@ jobs:
 
             private void onStartClicked() {
                 saveSettings();
+                audioDenied = false;
                 List<String> need = new ArrayList<>();
-                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                if (!has(Manifest.permission.RECORD_AUDIO)) {
                     need.add(Manifest.permission.RECORD_AUDIO);
                 }
-                if (Build.VERSION.SDK_INT >= 33
-                        && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                if (Build.VERSION.SDK_INT >= 33 && !has("android.permission.POST_NOTIFICATIONS")) {
                     need.add("android.permission.POST_NOTIFICATIONS");
+                }
+                if (Build.VERSION.SDK_INT < 29 && !has(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+                    need.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
                 }
                 if (need.isEmpty()) {
                     startCapture();
@@ -422,39 +579,49 @@ jobs:
             @Override
             public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
                 super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-                if (requestCode == REQ_PERM) {
-                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                        startCapture();
-                    } else {
-                        Toast.makeText(this, "Microphone/Audio permission zaroori hai", Toast.LENGTH_LONG).show();
-                    }
+                if (requestCode != REQ_PERM) return;
+                if (Build.VERSION.SDK_INT < 29 && !has(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+                    Toast.makeText(this, "Storage permission is required to save videos", Toast.LENGTH_LONG).show();
+                    return;
                 }
+                if (!has(Manifest.permission.RECORD_AUDIO)) {
+                    audioDenied = true;
+                    Toast.makeText(this, "Audio permission denied. Recording without audio.", Toast.LENGTH_LONG).show();
+                }
+                startCapture();
             }
 
             private void startCapture() {
-                MediaProjectionManager mpm = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-                startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE);
+                try {
+                    MediaProjectionManager mpm = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+                    startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE);
+                } catch (Exception e) {
+                    Toast.makeText(this, "Screen capture is not available on this device", Toast.LENGTH_LONG).show();
+                }
             }
 
             @Override
             protected void onActivityResult(int requestCode, int resultCode, Intent data) {
                 super.onActivityResult(requestCode, resultCode, data);
-                if (requestCode == REQ_CAPTURE) {
-                    if (resultCode == RESULT_OK && data != null) {
-                        Intent i = new Intent(this, RecorderService.class);
-                        i.setAction(RecorderService.ACTION_START);
-                        i.putExtra("code", resultCode);
-                        i.putExtra("data", data);
-                        i.putExtra("res", resValues[segRes.sel]);
-                        i.putExtra("fps", fpsValues[segFps.sel]);
-                        i.putExtra("mbps", bitValues[segBit.sel]);
-                        i.putExtra("mic", segAudio.sel == 1);
-                        i.putExtra("ori", segOri.sel);
+                if (requestCode != REQ_CAPTURE) return;
+                if (resultCode == RESULT_OK && data != null) {
+                    Intent i = new Intent(this, RecorderService.class);
+                    i.setAction(RecorderService.ACTION_START);
+                    i.putExtra("code", resultCode);
+                    i.putExtra("data", data);
+                    i.putExtra("res", resValues[segRes.sel]);
+                    i.putExtra("fps", fpsValues[segFps.sel]);
+                    i.putExtra("mbps", bitValues[segBit.sel]);
+                    i.putExtra("audio", audioDenied ? 0 : audioMode());
+                    i.putExtra("ori", segOri.sel);
+                    if (Build.VERSION.SDK_INT >= 26) {
                         startForegroundService(i);
-                        moveTaskToBack(true);
                     } else {
-                        Toast.makeText(this, "Screen capture permission nahi mili", Toast.LENGTH_SHORT).show();
+                        startService(i);
                     }
+                    moveTaskToBack(true);
+                } else {
+                    Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show();
                 }
             }
         }
@@ -471,13 +638,11 @@ jobs:
         import android.app.Service;
         import android.content.Intent;
         import android.content.pm.ServiceInfo;
-        import android.graphics.drawable.Icon;
         import android.media.projection.MediaProjection;
         import android.media.projection.MediaProjectionManager;
         import android.net.Uri;
-        import android.os.Handler;
+        import android.os.Build;
         import android.os.IBinder;
-        import android.os.Looper;
         import android.widget.Toast;
 
         import java.util.Locale;
@@ -495,11 +660,8 @@ jobs:
 
             private Recorder rec;
             private boolean paused = false;
-            private boolean starting = false;
             private long runStart = 0, accum = 0;
             private String summary = "";
-            private final Handler handler = new Handler(Looper.getMainLooper());
-            private Runnable pendingStart;
 
             @Override
             public IBinder onBind(Intent intent) {
@@ -515,7 +677,7 @@ jobs:
                 }
                 switch (action) {
                     case ACTION_START:
-                        if (rec == null && !starting) startRecording(intent);
+                        if (rec == null) startRecording(intent);
                         break;
                     case ACTION_PAUSE:
                         if (rec != null && !paused) {
@@ -543,40 +705,42 @@ jobs:
             }
 
             private void startRecording(Intent intent) {
-                NotificationManager nm = getSystemService(NotificationManager.class);
-                nm.createNotificationChannel(new NotificationChannel(
-                        CHANNEL_ID, "Recording", NotificationManager.IMPORTANCE_LOW));
+                NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                if (Build.VERSION.SDK_INT >= 26) {
+                    nm.createNotificationChannel(new NotificationChannel(
+                            CHANNEL_ID, "Recording", NotificationManager.IMPORTANCE_LOW));
+                }
 
-                boolean mic = intent.getBooleanExtra("mic", false);
-                int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                        | (mic ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0);
+                int audio = intent.getIntExtra("audio", 0);
+                boolean mic = audio == 2 || audio == 3;
                 summary = intent.getIntExtra("res", 720) + "p | " + intent.getIntExtra("fps", 30) + " fps | "
                         + intent.getIntExtra("mbps", 8) + " Mbps" + (mic ? " | Mic" : "");
                 paused = false;
-                starting = true;
                 accum = 0;
-                startForeground(NOTIF_ID, buildNotification(), type);
+                runStart = System.currentTimeMillis();
 
-                final int ori = intent.getIntExtra("ori", 0);
-                pendingStart = () -> beginRecording(intent, mic, ori);
-                handler.postDelayed(pendingStart, ori == 0 ? 4000 : 300);
-            }
-
-            private void beginRecording(Intent intent, boolean mic, int ori) {
-                pendingStart = null;
-                starting = false;
                 Recorder r = null;
                 MediaProjection mp = null;
                 try {
+                    Notification n = buildNotification();
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                                | (mic ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0);
+                        startForeground(NOTIF_ID, n, type);
+                    } else {
+                        startForeground(NOTIF_ID, n);
+                    }
+
                     MediaProjectionManager mpm = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
                     Intent data = (Intent) intent.getParcelableExtra("data");
                     mp = mpm.getMediaProjection(intent.getIntExtra("code", 0), data);
+                    if (mp == null) throw new Exception("Screen capture permission is invalid");
                     r = new Recorder(this, mp,
                             intent.getIntExtra("res", 720),
                             intent.getIntExtra("fps", 30),
                             intent.getIntExtra("mbps", 8) * 1000000,
-                            mic,
-                            ori,
+                            audio,
+                            intent.getIntExtra("ori", 0),
                             this::stopAndSave);
                     r.start();
                     rec = r;
@@ -589,49 +753,54 @@ jobs:
                     } else if (mp != null) {
                         try { mp.stop(); } catch (Exception ignored) { }
                     }
-                    Toast.makeText(this, "Recording start nahi hui: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                    stopForeground(STOP_FOREGROUND_REMOVE);
+                    Toast.makeText(this, "Could not start recording: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    stopForeground(true);
                     stopSelf();
                 }
             }
 
             private PendingIntent action(String action, int code) {
                 Intent i = new Intent(this, RecorderService.class).setAction(action);
-                return PendingIntent.getService(this, code, i,
-                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT
+                        | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0);
+                return PendingIntent.getService(this, code, i, flags);
+            }
+
+            private Notification.Builder newBuilder() {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    return new Notification.Builder(this, CHANNEL_ID);
+                }
+                return new Notification.Builder(this).setPriority(Notification.PRIORITY_LOW);
             }
 
             private Notification buildNotification() {
                 boolean ph = paused;
                 Notification.Action toggle = new Notification.Action.Builder(
-                        Icon.createWithResource(this, ph ? android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause),
+                        ph ? android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause,
                         ph ? "Resume" : "Pause",
                         action(ph ? ACTION_RESUME : ACTION_PAUSE, 10)).build();
                 Notification.Action stop = new Notification.Action.Builder(
-                        Icon.createWithResource(this, android.R.drawable.ic_menu_save),
+                        android.R.drawable.ic_menu_save,
                         "Stop & Save",
                         action(ACTION_STOP, 11)).build();
 
-                int color = starting ? 0xFFFFD600 : (ph ? 0xFFFFAB00 : 0xFFFF1744);
-                String title = starting ? "Starting in 4 sec - game kholo"
-                        : (ph ? "Paused" : "Recording");
                 String text = summary;
                 if (ph) {
                     long sec = accum / 1000;
                     text = String.format(Locale.US, "Paused at %02d:%02d | ", sec / 60, sec % 60) + summary;
                 }
 
-                Notification.Builder nb = new Notification.Builder(this, CHANNEL_ID)
-                        .setSmallIcon(android.R.drawable.ic_media_play)
-                        .setColor(color)
+                Notification.Builder nb = newBuilder()
+                        .setSmallIcon(R.drawable.ic_stat_rec)
+                        .setColor(ph ? 0xFFFFAB00 : 0xFFFF1744)
                         .setSubText("Game Recorder")
-                        .setContentTitle(title)
+                        .setContentTitle(ph ? "Paused" : "Recording")
                         .setContentText(text)
                         .setOngoing(true)
                         .setOnlyAlertOnce(true)
                         .addAction(toggle)
                         .addAction(stop);
-                if (!starting && !ph) {
+                if (!ph) {
                     nb.setShowWhen(true).setUsesChronometer(true).setWhen(runStart - accum);
                 } else {
                     nb.setShowWhen(false);
@@ -640,19 +809,13 @@ jobs:
             }
 
             private void updateNotification() {
-                getSystemService(NotificationManager.class).notify(NOTIF_ID, buildNotification());
+                ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(NOTIF_ID, buildNotification());
             }
 
             private void stopAndSave() {
                 final Recorder r = rec;
                 rec = null;
                 if (r == null) {
-                    if (pendingStart != null) {
-                        handler.removeCallbacks(pendingStart);
-                        pendingStart = null;
-                        starting = false;
-                        stopForeground(STOP_FOREGROUND_REMOVE);
-                    }
                     stopSelf();
                     return;
                 }
@@ -661,29 +824,41 @@ jobs:
                     try {
                         u = r.stop();
                     } catch (Exception ignored) { }
-                    stopForeground(STOP_FOREGROUND_REMOVE);
-                    notifySaved(u);
+                    stopForeground(true);
+                    notifySaved(u, r.saved);
                     stopSelf();
                 }).start();
             }
 
-            private void notifySaved(Uri uri) {
-                Notification.Builder b = new Notification.Builder(this, CHANNEL_ID)
-                        .setSmallIcon(android.R.drawable.ic_menu_save)
+            private void notifySaved(Uri uri, boolean ok) {
+                Notification.Builder b = newBuilder()
+                        .setSmallIcon(R.drawable.ic_stat_rec)
                         .setColor(0xFF00E676)
                         .setSubText("Game Recorder")
                         .setAutoCancel(true);
-                if (uri != null) {
-                    Intent view = new Intent(Intent.ACTION_VIEW)
-                            .setDataAndType(uri, "video/mp4")
-                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    b.setContentTitle("Recording saved")
-                            .setContentText("Movies/GameRec | tap to play")
-                            .setContentIntent(PendingIntent.getActivity(this, 20, view, PendingIntent.FLAG_IMMUTABLE));
+                if (ok) {
+                    b.setContentTitle("Recording saved").setContentText("Movies/GameRec");
+                    if (uri != null) {
+                        Intent view = new Intent(Intent.ACTION_VIEW)
+                                .setDataAndType(uri, "video/mp4")
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        int flags = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
+                        b.setContentIntent(PendingIntent.getActivity(this, 20, view, flags));
+                    }
                 } else {
-                    b.setContentTitle("Recording save nahi hui");
+                    b.setContentTitle("Recording could not be saved");
                 }
-                getSystemService(NotificationManager.class).notify(SAVED_ID, b.build());
+                ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(SAVED_ID, b.build());
+            }
+
+            @Override
+            public void onDestroy() {
+                Recorder r = rec;
+                rec = null;
+                if (r != null) {
+                    try { r.stop(); } catch (Exception ignored) { }
+                }
+                super.onDestroy();
             }
         }
         EOF
@@ -706,9 +881,12 @@ jobs:
         import android.media.MediaFormat;
         import android.media.MediaMuxer;
         import android.media.MediaRecorder;
+        import android.media.MediaScannerConnection;
         import android.media.projection.MediaProjection;
         import android.net.Uri;
+        import android.os.Build;
         import android.os.Bundle;
+        import android.os.Environment;
         import android.os.Handler;
         import android.os.Looper;
         import android.os.ParcelFileDescriptor;
@@ -718,6 +896,7 @@ jobs:
         import android.view.Display;
         import android.view.Surface;
 
+        import java.io.File;
         import java.nio.ByteBuffer;
         import java.nio.ByteOrder;
         import java.text.SimpleDateFormat;
@@ -733,8 +912,7 @@ jobs:
             private final MediaProjection mp;
             private final Runnable onProjectionStopped;
             private int w, h;
-            private final int dpi, fps, bitrate;
-            private final boolean mic;
+            private final int dpi, fps, bitrate, audioMode;
 
             private MediaCodec vEnc, aEnc;
             private Surface surface;
@@ -743,8 +921,12 @@ jobs:
             private AudioRecord apRec, micRec;
             private ParcelFileDescriptor pfd;
             private Uri uri;
+            private File outFile;
             private Thread vThread, aThread;
             private MediaProjection.Callback cb;
+            private boolean hasAudio = false;
+
+            public boolean saved = false;
 
             private volatile boolean running = false;
             private boolean stopped = false;
@@ -760,12 +942,12 @@ jobs:
             private long lastV = -1, lastA = -1;
 
             public Recorder(Context ctx, MediaProjection mp, int shortSide, int fps, int bitrate,
-                            boolean mic, int ori, Runnable onProjectionStopped) {
+                            int audioMode, int ori, Runnable onProjectionStopped) {
                 this.ctx = ctx;
                 this.mp = mp;
                 this.fps = fps;
                 this.bitrate = bitrate;
-                this.mic = mic;
+                this.audioMode = audioMode;
                 this.onProjectionStopped = onProjectionStopped;
 
                 DisplayMetrics dm = new DisplayMetrics();
@@ -776,7 +958,6 @@ jobs:
                         / Math.min(dm.widthPixels, dm.heightPixels);
                 int s = align16(shortSide);
                 int l = align16((int) Math.round(shortSide * ratio));
-                boolean landscape = ori == 1 || (ori == 0 && dm.widthPixels > dm.heightPixels);
                 double area = (double) s * l;
                 double maxArea = 1920.0 * 1088.0;
                 if (area > maxArea) {
@@ -784,6 +965,7 @@ jobs:
                     s = align16((int) (s * k));
                     l = align16((int) (l * k));
                 }
+                boolean landscape = ori == 1 || (ori == 0 && dm.widthPixels > dm.heightPixels);
                 this.w = landscape ? l : s;
                 this.h = landscape ? s : l;
                 this.dpi = dm.densityDpi;
@@ -798,20 +980,9 @@ jobs:
             }
 
             public void start() throws Exception {
-                // Output file in Movies/GameRec
-                ContentResolver cr = ctx.getContentResolver();
-                ContentValues v = new ContentValues();
-                v.put(MediaStore.Video.Media.DISPLAY_NAME,
-                        "Rec_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".mp4");
-                v.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
-                v.put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/GameRec");
-                v.put(MediaStore.Video.Media.IS_PENDING, 1);
-                uri = cr.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, v);
-                if (uri == null) throw new Exception("File create nahi hui");
-                pfd = cr.openFileDescriptor(uri, "rw");
-                muxer = new MediaMuxer(pfd.getFileDescriptor(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+                openOutput();
 
-                // Video encoder
+                // ---- video encoder ----
                 vEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
                 MediaCodecInfo.CodecCapabilities caps = null;
                 try {
@@ -828,39 +999,8 @@ jobs:
                 surface = vEnc.createInputSurface();
                 vEnc.start();
 
-                // Audio encoder
-                MediaFormat af = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SR, 2);
-                af.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
-                af.setInteger(MediaFormat.KEY_BIT_RATE, 128000);
-                af.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384);
-                aEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC);
-                aEnc.configure(af, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-                aEnc.start();
-
-                // Device audio capture
-                AudioPlaybackCaptureConfiguration cfg = new AudioPlaybackCaptureConfiguration.Builder(mp)
-                        .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-                        .addMatchingUsage(AudioAttributes.USAGE_GAME)
-                        .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-                        .build();
-                AudioFormat fmt = new AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(SR)
-                        .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
-                        .build();
-                int minSt = AudioRecord.getMinBufferSize(SR, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT);
-                apRec = new AudioRecord.Builder()
-                        .setAudioFormat(fmt)
-                        .setBufferSizeInBytes(Math.max(minSt, CHUNK * 8))
-                        .setAudioPlaybackCaptureConfig(cfg)
-                        .build();
-
-                if (mic) {
-                    int minMono = AudioRecord.getMinBufferSize(SR, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-                    micRec = new AudioRecord(MediaRecorder.AudioSource.MIC, SR,
-                            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
-                            Math.max(minMono, CHUNK * 4));
-                }
+                // ---- audio (optional, never blocks video) ----
+                setupAudio();
 
                 cb = new MediaProjection.Callback() {
                     @Override
@@ -872,15 +1012,38 @@ jobs:
 
                 startUs = nowUs();
                 running = true;
-                apRec.startRecording();
-                if (micRec != null) micRec.startRecording();
+                startAudioRecords();
                 vd = mp.createVirtualDisplay("GameRec", w, h, dpi,
                         DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, null);
 
                 vThread = new Thread(this::videoLoop, "rec-video");
-                aThread = new Thread(this::audioLoop, "rec-audio");
                 vThread.start();
-                aThread.start();
+                if (hasAudio) {
+                    aThread = new Thread(this::audioLoop, "rec-audio");
+                    aThread.start();
+                }
+            }
+
+            private void openOutput() throws Exception {
+                String name = "Rec_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".mp4";
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ContentResolver cr = ctx.getContentResolver();
+                    ContentValues v = new ContentValues();
+                    v.put(MediaStore.Video.Media.DISPLAY_NAME, name);
+                    v.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+                    v.put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/GameRec");
+                    v.put(MediaStore.Video.Media.IS_PENDING, 1);
+                    uri = cr.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, v);
+                    if (uri == null) throw new Exception("Could not create the video file");
+                    pfd = cr.openFileDescriptor(uri, "rw");
+                    if (pfd == null) throw new Exception("Could not open the video file");
+                    muxer = new MediaMuxer(pfd.getFileDescriptor(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+                } else {
+                    File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "GameRec");
+                    if (!dir.exists() && !dir.mkdirs()) throw new Exception("Could not create Movies/GameRec folder");
+                    outFile = new File(dir, name);
+                    muxer = new MediaMuxer(outFile.getAbsolutePath(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+                }
             }
 
             private void fitSize(MediaCodecInfo.VideoCapabilities vc) {
@@ -929,6 +1092,113 @@ jobs:
                 return vf;
             }
 
+            private AudioRecord buildPlaybackRecord() {
+                AudioPlaybackCaptureConfiguration cfg = new AudioPlaybackCaptureConfiguration.Builder(mp)
+                        .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                        .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                        .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                        .build();
+                AudioFormat fmt = new AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(SR)
+                        .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
+                        .build();
+                int min = AudioRecord.getMinBufferSize(SR, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT);
+                return new AudioRecord.Builder()
+                        .setAudioFormat(fmt)
+                        .setBufferSizeInBytes(Math.max(min, CHUNK * 8))
+                        .setAudioPlaybackCaptureConfig(cfg)
+                        .build();
+            }
+
+            private void setupAudio() {
+                boolean wantDevice = (audioMode == 1 || audioMode == 2) && Build.VERSION.SDK_INT >= 29;
+                boolean wantMic = audioMode == 2 || audioMode == 3;
+                if (wantDevice) {
+                    try {
+                        apRec = buildPlaybackRecord();
+                        if (apRec.getState() != AudioRecord.STATE_INITIALIZED) {
+                            apRec.release();
+                            apRec = null;
+                        }
+                    } catch (Throwable t) {
+                        apRec = null;
+                    }
+                }
+                if (wantMic) {
+                    try {
+                        int min = AudioRecord.getMinBufferSize(SR, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+                        micRec = new AudioRecord(MediaRecorder.AudioSource.MIC, SR,
+                                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                                Math.max(min, CHUNK * 4));
+                        if (micRec.getState() != AudioRecord.STATE_INITIALIZED) {
+                            micRec.release();
+                            micRec = null;
+                        }
+                    } catch (Throwable t) {
+                        micRec = null;
+                    }
+                }
+                if (apRec == null && micRec == null) return;
+                try {
+                    MediaFormat af = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SR, 2);
+                    af.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
+                    af.setInteger(MediaFormat.KEY_BIT_RATE, 128000);
+                    af.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384);
+                    aEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC);
+                    aEnc.configure(af, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+                    aEnc.start();
+                    hasAudio = true;
+                } catch (Throwable t) {
+                    releaseAudioRecords();
+                    if (aEnc != null) {
+                        try { aEnc.release(); } catch (Throwable ignored) { }
+                        aEnc = null;
+                    }
+                    hasAudio = false;
+                }
+            }
+
+            private void releaseAudioRecords() {
+                try { if (apRec != null) apRec.release(); } catch (Throwable ignored) { }
+                try { if (micRec != null) micRec.release(); } catch (Throwable ignored) { }
+                apRec = null;
+                micRec = null;
+            }
+
+            private void startAudioRecords() {
+                if (!hasAudio) return;
+                if (apRec != null) {
+                    try {
+                        apRec.startRecording();
+                        if (apRec.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
+                            throw new IllegalStateException();
+                        }
+                    } catch (Throwable t) {
+                        try { apRec.release(); } catch (Throwable ignored) { }
+                        apRec = null;
+                    }
+                }
+                if (micRec != null) {
+                    try {
+                        micRec.startRecording();
+                        if (micRec.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
+                            throw new IllegalStateException();
+                        }
+                    } catch (Throwable t) {
+                        try { micRec.release(); } catch (Throwable ignored) { }
+                        micRec = null;
+                    }
+                }
+                if (apRec == null && micRec == null) {
+                    hasAudio = false;
+                    if (aEnc != null) {
+                        try { aEnc.release(); } catch (Throwable ignored) { }
+                        aEnc = null;
+                    }
+                }
+            }
+
             public synchronized void pause() {
                 if (!running || paused) return;
                 pauseStartUs = nowUs();
@@ -952,7 +1222,7 @@ jobs:
                     try {
                         int t = muxer.addTrack(f);
                         if (video) vTrack = t; else aTrack = t;
-                        if (vTrack >= 0 && aTrack >= 0 && !muxStarted) {
+                        if (vTrack >= 0 && (!hasAudio || aTrack >= 0) && !muxStarted) {
                             muxer.start();
                             muxStarted = true;
                             lock.notifyAll();
@@ -1019,8 +1289,8 @@ jobs:
 
             private void audioLoop() {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
-                short[] pb = new short[CHUNK * 2];
-                short[] mb = new short[CHUNK];
+                short[] st = new short[CHUNK * 2];
+                short[] mono = new short[CHUNK];
                 byte[] bytes = new byte[CHUNK * 4];
                 MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
                 long frames = 0;
@@ -1028,42 +1298,53 @@ jobs:
                 long lastPts = 0;
                 try {
                     while (running) {
-                        int n = apRec.read(pb, 0, pb.length, AudioRecord.READ_BLOCKING);
-                        int m = 0;
-                        if (micRec != null) {
-                            m = micRec.read(mb, 0, CHUNK, AudioRecord.READ_BLOCKING);
-                        }
-                        if (n <= 0) {
-                            Thread.sleep(5);
-                            continue;
-                        }
-                        if (paused) continue;
-                        if (m > 0) {
-                            int cnt = Math.min(m, n / 2);
-                            for (int i = 0; i < cnt; i++) {
-                                pb[2 * i] = clip(pb[2 * i] + mb[i]);
-                                pb[2 * i + 1] = clip(pb[2 * i + 1] + mb[i]);
+                        int fr;
+                        if (apRec != null) {
+                            int n = apRec.read(st, 0, st.length);
+                            if (n <= 0) {
+                                Thread.sleep(5);
+                                continue;
+                            }
+                            fr = n / 2;
+                            if (micRec != null) {
+                                int m = micRec.read(mono, 0, CHUNK);
+                                int cnt = Math.min(Math.max(m, 0), fr);
+                                for (int i = 0; i < cnt; i++) {
+                                    st[2 * i] = clip(st[2 * i] + mono[i]);
+                                    st[2 * i + 1] = clip(st[2 * i + 1] + mono[i]);
+                                }
+                            }
+                        } else {
+                            int m = micRec.read(mono, 0, CHUNK);
+                            if (m <= 0) {
+                                Thread.sleep(5);
+                                continue;
+                            }
+                            fr = m;
+                            for (int i = 0; i < fr; i++) {
+                                st[2 * i] = mono[i];
+                                st[2 * i + 1] = mono[i];
                             }
                         }
+                        if (paused) continue;
                         if (base == Long.MIN_VALUE) {
-                            base = (nowUs() - startUs - pausedTotalUs) - (n / 2) * 1000000L / SR;
+                            base = (nowUs() - startUs - pausedTotalUs) - fr * 1000000L / SR;
                         }
                         long pts = base + frames * 1000000L / SR;
                         lastPts = pts;
-                        frames += n / 2;
+                        frames += fr;
 
-                        ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().put(pb, 0, n);
+                        ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().put(st, 0, fr * 2);
                         int in = aEnc.dequeueInputBuffer(10000);
                         if (in >= 0) {
                             ByteBuffer ib = aEnc.getInputBuffer(in);
                             ib.clear();
-                            ib.put(bytes, 0, n * 2);
-                            aEnc.queueInputBuffer(in, 0, n * 2, pts, 0);
+                            ib.put(bytes, 0, fr * 4);
+                            aEnc.queueInputBuffer(in, 0, fr * 4, pts, 0);
                         }
                         drainAudio(info, 0);
                     }
 
-                    // send end-of-stream
                     for (int tries = 0; tries < 50; tries++) {
                         int in = aEnc.dequeueInputBuffer(10000);
                         if (in >= 0) {
@@ -1124,9 +1405,9 @@ jobs:
                 try { mp.stop(); } catch (Exception ignored) { }
                 try { if (pfd != null) pfd.close(); } catch (Exception ignored) { }
 
-                ContentResolver cr = ctx.getContentResolver();
-                if (uri != null) {
-                    try {
+                try {
+                    if (uri != null) {
+                        ContentResolver cr = ctx.getContentResolver();
                         if (ok) {
                             ContentValues v = new ContentValues();
                             v.put(MediaStore.Video.Media.IS_PENDING, 0);
@@ -1135,18 +1416,28 @@ jobs:
                             cr.delete(uri, null, null);
                             uri = null;
                         }
-                    } catch (Exception ignored) { }
-                }
+                    } else if (outFile != null) {
+                        if (ok) {
+                            MediaScannerConnection.scanFile(ctx, new String[]{outFile.getAbsolutePath()},
+                                    new String[]{"video/mp4"}, null);
+                        } else {
+                            outFile.delete();
+                        }
+                    }
+                } catch (Exception ignored) { }
+                saved = ok;
                 return uri;
             }
         }
         EOF
 
-    - name: Build release APK
-      run: gradle assembleRelease --stacktrace
+    - name: Build release APK and AAB
+      run: gradle assembleRelease bundleRelease --stacktrace
 
-    - name: Upload APK
+    - name: Upload APK and AAB
       uses: actions/upload-artifact@v4
       with:
-        name: GameRecorder-APK
-        path: app/build/outputs/apk/release/*.apk
+        name: GameRecorder
+        path: |
+          app/build/outputs/apk/release/*.apk
+          app/build/outputs/bundle/release/*.aab
