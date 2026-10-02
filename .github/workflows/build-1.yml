@@ -1,0 +1,397 @@
+name: Build Git Action Build APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Generate project files
+        run: |
+          mkdir -p app/src/main/java/com/gitactionbuild app/src/main/res/values app/src/main/res/values-night
+
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "GitActionBuild"
+          include(":app")
+          EOF
+
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF
+
+          cat > app/build.gradle.kts <<'EOF'
+          plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
+          android {
+              namespace = "com.gitactionbuild"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.gitactionbuild"
+                  minSdk = 30; targetSdk = 34; versionCode = 1; versionName = "1.0"
+              }
+              compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+              <application android:label="Git Action Build" android:theme="@style/T"
+                  android:requestLegacyExternalStorage="true">
+                  <activity android:name=".MainActivity" android:exported="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/themes.xml <<'EOF'
+          <resources>
+              <style name="T" parent="android:Theme.DeviceDefault.DayNight">
+                  <item name="android:windowLightStatusBar">true</item>
+                  <item name="android:windowLightNavigationBar">true</item>
+                  <item name="android:statusBarColor">@android:color/transparent</item>
+                  <item name="android:navigationBarColor">@android:color/transparent</item>
+                  <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values-night/themes.xml <<'EOF'
+          <resources>
+              <style name="T" parent="android:Theme.DeviceDefault.DayNight">
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:windowLightNavigationBar">false</item>
+                  <item name="android:statusBarColor">@android:color/transparent</item>
+                  <item name="android:navigationBarColor">@android:color/transparent</item>
+                  <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/colors.xml <<'EOF'
+          <resources>
+              <color name="bg">#F6F7FB</color>
+              <color name="fg">#14161F</color>
+              <color name="p1">#6C5CE7</color>
+              <color name="p2">#00B4D8</color>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values-night/colors.xml <<'EOF'
+          <resources>
+              <color name="bg">#0E1018</color>
+              <color name="fg">#ECEEF6</color>
+              <color name="p1">#7C6CFF</color>
+              <color name="p2">#00D2FF</color>
+          </resources>
+          EOF
+
+          cat > app/src/main/java/com/gitactionbuild/MainActivity.kt <<'EOF'
+          package com.gitactionbuild
+
+          import android.app.*
+          import android.content.*
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.net.Uri
+          import android.os.*
+          import android.provider.Settings
+          import android.text.InputType
+          import android.util.Base64
+          import android.view.*
+          import android.widget.*
+          import org.json.*
+          import java.io.*
+          import java.net.*
+          import java.util.zip.ZipInputStream
+
+          class MainActivity : Activity() {
+              val base = File("/storage/emulated/0/GitActonBuild")
+              val sp by lazy { getSharedPreferences("g", 0) }
+              val tok get() = sp.getString("t", "") ?: ""
+              lateinit var root: LinearLayout
+
+              fun dp(x: Int) = (x * resources.displayMetrics.density).toInt()
+              fun ui(f: () -> Unit) = runOnUiThread(f)
+              fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
+              fun bg(f: () -> Unit) = Thread { try { f() } catch (e: Exception) { ui { toast("Error: ${e.message}") } } }.start()
+
+              override fun onCreate(b: Bundle?) {
+                  super.onCreate(b)
+                  window.setDecorFitsSystemWindows(false)
+                  window.statusBarColor = 0; window.navigationBarColor = 0
+                  root = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setBackgroundColor(getColor(R.color.bg))
+                      setOnApplyWindowInsetsListener { v, i ->
+                          val s = i.getInsets(WindowInsets.Type.systemBars())
+                          v.setPadding(dp(14), s.top + dp(10), dp(14), s.bottom + dp(10)); i
+                      }
+                  }
+                  setContentView(root)
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  if (root.childCount == 0 || !Environment.isExternalStorageManager()) start()
+              }
+
+              fun start() {
+                  if (!Environment.isExternalStorageManager()) {
+                      val l = page("Storage permission")
+                      l.addView(tv("App ko /storage/emulated/0/GitActonBuild folder banane ke liye storage access chahiye."))
+                      l.addView(btn("Allow storage") {
+                          startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
+                      })
+                  } else { base.mkdirs(); if (tok.isEmpty()) tokenScreen() else repos() }
+              }
+
+              // ---------- UI helpers ----------
+              fun page(t: String): LinearLayout {
+                  root.removeAllViews(); root.addView(tv(t, 22, true))
+                  val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  root.addView(ScrollView(this).apply { addView(l) }, LinearLayout.LayoutParams(-1, 0, 1f))
+                  return l
+              }
+              fun tv(t: String, s: Int = 15, bold: Boolean = false) = TextView(this).apply {
+                  text = t; textSize = s.toFloat(); setTextColor(getColor(R.color.fg))
+                  if (bold) setTypeface(null, Typeface.BOLD); setPadding(0, dp(6), 0, dp(6))
+              }
+              fun btn(t: String, f: () -> Unit) = Button(this).apply {
+                  text = t; isAllCaps = false; setTextColor(-1); elevation = dp(6).toFloat()
+                  background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                      intArrayOf(getColor(R.color.p1), getColor(R.color.p2))).apply { cornerRadius = dp(14).toFloat() }
+                  setOnClickListener { f() }
+              }
+              fun row(eq: Boolean, vararg v: View) = LinearLayout(this).apply {
+                  gravity = Gravity.CENTER_VERTICAL
+                  v.forEachIndexed { i, x ->
+                      val w = eq || (i == 0 && v.size > 1)
+                      addView(x, LinearLayout.LayoutParams(if (w) 0 else -2, -2, if (w) 1f else 0f).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) })
+                  }
+              }
+              fun ask(t: String, f: (String) -> Unit) {
+                  val e = EditText(this)
+                  AlertDialog.Builder(this).setTitle(t).setView(e).setPositiveButton("OK") { _, _ -> f(e.text.toString()) }.show()
+              }
+
+              // ---------- Token + repos ----------
+              fun tokenScreen() {
+                  val l = page("GitHub token")
+                  val e = EditText(this).apply { hint = "ghp_... (scopes: repo, workflow)"; setTextColor(getColor(R.color.fg)) }
+                  l.addView(e); l.addView(btn("OK") { sp.edit().putString("t", e.text.toString().trim()).apply(); repos() })
+              }
+
+              fun repos() {
+                  val l = page("Repositories")
+                  l.addView(btn("Change token") { tokenScreen() })
+                  bg {
+                      val a = JSONArray(api("GET", "/user/repos?per_page=100&sort=updated"))
+                      ui {
+                          for (i in 0 until a.length()) {
+                              val j = a.getJSONObject(i); val name = j.getString("name"); val dir = File(base, name)
+                              val b = if (dir.exists()) btn("Open") { browse(dir, dir) } else btn("Clone") {
+                                  toast("Cloning $name ...")
+                                  bg {
+                                      unzip(http("GET", "/repos/${j.getString("full_name")}/zipball").inputStream, dir)
+                                      File(dir, ".gab").writeText(j.getString("full_name") + "\n" + j.getString("default_branch"))
+                                      ui { repos() }
+                                  }
+                              }
+                              l.addView(row(false, tv(name), b))
+                          }
+                      }
+                  }
+              }
+
+              // ---------- File manager ----------
+              fun browse(repo: File, dir: File) {
+                  val l = page(repo.name + "/" + dir.relativeTo(repo).path)
+                  l.addView(row(true,
+                      btn("+ File") { ask("File name") { File(dir, it).createNewFile(); browse(repo, dir) } },
+                      btn("+ Folder") { ask("Folder name") { File(dir, it).mkdirs(); browse(repo, dir) } },
+                      btn("Push All") {
+                          AlertDialog.Builder(this).setMessage("Pehle repo ki saari files delete hongi, phir ye saari files push hongi. Continue?")
+                              .setPositiveButton("Yes") { _, _ -> pushAll(repo) }.setNegativeButton("No", null).show()
+                      }))
+                  if (dir != repo) l.addView(btn("⬆  ..") { browse(repo, dir.parentFile!!) })
+                  dir.listFiles()!!.filter { !it.name.startsWith(".gab") }
+                      .sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() })).forEach { f ->
+                          val n = tv((if (f.isDirectory) "📁 " else "📄 ") + f.name).apply {
+                              setOnClickListener { if (f.isDirectory) browse(repo, f) else edit(repo, dir, f) }
+                          }
+                          l.addView(row(false, n, btn("⋮") { menu(repo, dir, f) }))
+                      }
+                  l.addView(btn("Back to repos") { repos() })
+              }
+
+              fun menu(repo: File, dir: File, f: File) {
+                  AlertDialog.Builder(this).setItems(arrayOf("Rename", "Delete", "Push this file")) { _, w ->
+                      when (w) {
+                          0 -> ask("New name") { f.renameTo(File(dir, it)); browse(repo, dir) }
+                          1 -> { f.deleteRecursively(); browse(repo, dir) }
+                          2 -> if (f.isFile) pushOne(repo, f) else toast("Folder ke liye Push All use karo")
+                      }
+                  }.show()
+              }
+
+              fun edit(repo: File, dir: File, f: File) {
+                  if (f.length() > 1_000_000) { toast("File editor ke liye bahut badi hai"); return }
+                  val l = page(f.name); var saved = f.readText()
+                  val e = EditText(this).apply {
+                      setText(saved); typeface = Typeface.MONOSPACE; setTextColor(getColor(R.color.fg))
+                      inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE; gravity = Gravity.TOP
+                  }
+                  l.addView(e)
+                  l.addView(row(true,
+                      btn("Save") { saved = e.text.toString(); f.writeText(saved); toast("Saved") },
+                      btn("Undo") { e.setText(saved) },
+                      btn("Push") { f.writeText(e.text.toString()); pushOne(repo, f) },
+                      btn("Back") { browse(repo, dir) }))
+              }
+
+              // ---------- GitHub API ----------
+              fun http(m: String, u: String, body: String? = null): HttpURLConnection {
+                  val c = URL(if (u.startsWith("http")) u else "https://api.github.com$u").openConnection() as HttpURLConnection
+                  c.requestMethod = m
+                  c.setRequestProperty("Authorization", "Bearer $tok")
+                  c.setRequestProperty("Accept", "application/vnd.github+json")
+                  if (body != null) { c.doOutput = true; c.outputStream.use { it.write(body.toByteArray()) } }
+                  if (c.responseCode >= 400) throw Exception("${c.responseCode} ${c.errorStream?.bufferedReader()?.readText()}")
+                  return c
+              }
+              fun api(m: String, u: String, body: String? = null) = http(m, u, body).inputStream.bufferedReader().readText()
+              fun meta(repo: File) = File(repo, ".gab").readLines()
+              fun files(repo: File) = repo.walkTopDown().filter { it.isFile && !it.relativeTo(repo).path.let { p -> p.startsWith(".gab") || p.startsWith(".git/") } }.toList()
+
+              fun unzip(i: InputStream, out: File) {
+                  ZipInputStream(i).use { z ->
+                      var e = z.nextEntry
+                      while (e != null) {
+                          val n = e.name.substringAfter('/')
+                          if (n.isNotEmpty()) {
+                              val f = File(out, n)
+                              if (e.isDirectory) f.mkdirs() else { f.parentFile?.mkdirs(); f.outputStream().use { z.copyTo(it) } }
+                          }
+                          e = z.nextEntry
+                      }
+                  }
+              }
+
+              fun pushOne(repo: File, f: File) = bg {
+                  val (full, br) = meta(repo); val p = f.relativeTo(repo).path.replace(" ", "%20")
+                  val sha = try { JSONObject(api("GET", "/repos/$full/contents/$p?ref=$br")).getString("sha") } catch (e: Exception) { null }
+                  val j = JSONObject().put("message", "Update $p").put("branch", br)
+                      .put("content", Base64.encodeToString(f.readBytes(), Base64.NO_WRAP))
+                  if (sha != null) j.put("sha", sha)
+                  val c = JSONObject(api("PUT", "/repos/$full/contents/$p", j.toString())).getJSONObject("commit").getString("sha")
+                  ui { watch(full, c) }
+              }
+
+              fun pushAll(repo: File) = bg {
+                  val (full, br) = meta(repo)
+                  val head = JSONObject(api("GET", "/repos/$full/git/ref/heads/$br")).getJSONObject("object").getString("sha")
+                  val tree = JSONArray()
+                  for (f in files(repo)) {
+                      val b = JSONObject(api("POST", "/repos/$full/git/blobs", JSONObject()
+                          .put("content", Base64.encodeToString(f.readBytes(), Base64.NO_WRAP)).put("encoding", "base64").toString())).getString("sha")
+                      tree.put(JSONObject().put("path", f.relativeTo(repo).path).put("mode", "100644").put("type", "blob").put("sha", b))
+                  }
+                  // base_tree nahi diya => purani saari files delete, sirf nayi files rahengi
+                  val t = JSONObject(api("POST", "/repos/$full/git/trees", JSONObject().put("tree", tree).toString())).getString("sha")
+                  val c = JSONObject(api("POST", "/repos/$full/git/commits", JSONObject().put("message", "Push all from Git Action Build")
+                      .put("tree", t).put("parents", JSONArray().put(head)).toString())).getString("sha")
+                  api("PATCH", "/repos/$full/git/refs/heads/$br", JSONObject().put("sha", c).put("force", true).toString())
+                  ui { watch(full, c) }
+              }
+
+              // ---------- Actions: jobs, artifact, logs ----------
+              fun watch(full: String, sha: String) {
+                  val l = page("Build"); l.addView(tv("Workflow start hone ka wait..."))
+                  bg {
+                      for (i in 0 until 300) {
+                          Thread.sleep(4000)
+                          val rs = JSONObject(api("GET", "/repos/$full/actions/runs?head_sha=$sha")).getJSONArray("workflow_runs")
+                          if (rs.length() == 0) continue
+                          val r = rs.getJSONObject(0)
+                          val js = JSONObject(api("GET", r.getString("url") + "/jobs")).getJSONArray("jobs")
+                          val done = r.getString("status") == "completed"
+                          ui {
+                              l.removeAllViews(); l.addView(tv("Run: " + r.getString("status"), 18, true))
+                              for (k in 0 until js.length()) {
+                                  val j = js.getJSONObject(k)
+                                  val ic = if (j.getString("status") != "completed") "⏳ " else if (j.getString("conclusion") == "success") "✅ " else "❌ "
+                                  l.addView(tv(ic + j.getString("name") + "  (" + j.getString("status") + ")"))
+                              }
+                          }
+                          if (done) {
+                              if (r.getString("conclusion") == "success") download(r, l)
+                              else ui { l.addView(btn("Raw logs") { logs(r.getString("url")) }) }
+                              ui { l.addView(btn("Back to repos") { repos() }) }
+                              return@bg
+                          }
+                      }
+                  }
+              }
+
+              fun download(r: JSONObject, l: LinearLayout) {
+                  val a = JSONObject(api("GET", r.getString("url") + "/artifacts")).getJSONArray("artifacts")
+                  if (a.length() == 0) { ui { l.addView(tv("Build successful, par koi artifact nahi mila")) }; return }
+                  val x = a.getJSONObject(0); val out = File(base, "artifacts/${x.getString("name")}.zip")
+                  out.parentFile?.mkdirs()
+                  http("GET", x.getString("archive_download_url")).inputStream.use { i -> out.outputStream().use { i.copyTo(it) } }
+                  ui { l.addView(tv("✅ Build successful. Download ho gaya:\n" + out.path)) }
+              }
+
+              fun logs(u: String) = bg {
+                  val sb = StringBuilder()
+                  ZipInputStream(http("GET", "$u/logs").inputStream).use { z ->
+                      var e = z.nextEntry
+                      while (e != null) {
+                          if (!e.isDirectory) sb.append("=== ${e.name} ===\n").append(String(z.readBytes())).append("\n")
+                          e = z.nextEntry
+                      }
+                  }
+                  ui {
+                      val t = TextView(this).apply { text = sb; textSize = 11f; setTextIsSelectable(true); typeface = Typeface.MONOSPACE; setTextColor(getColor(R.color.fg)) }
+                      AlertDialog.Builder(this).setView(ScrollView(this).apply { addView(t) })
+                          .setPositiveButton("Copy all") { _, _ ->
+                              (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("log", sb)); toast("Copied")
+                          }.setNegativeButton("Close", null).show()
+                  }
+              }
+          }
+          EOF
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GitActionBuild-apk
+          path: app/build/outputs/apk/debug/*.apk
