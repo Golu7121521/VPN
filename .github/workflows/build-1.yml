@@ -42,7 +42,7 @@ jobs:
               compileSdk = 34
               defaultConfig {
                   applicationId = "com.gitactionbuild"
-                  minSdk = 30; targetSdk = 34; versionCode = 1; versionName = "1.0"
+                  minSdk = 24; targetSdk = 29; versionCode = 1; versionName = "1.0"
               }
               compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = "17" }
@@ -71,7 +71,7 @@ jobs:
 
           cat > app/src/main/res/values/themes.xml <<'EOF'
           <resources>
-              <style name="T" parent="android:Theme.DeviceDefault.DayNight">
+              <style name="T" parent="android:Theme.DeviceDefault.Light.NoActionBar">
                   <item name="android:windowLightStatusBar">true</item>
                   <item name="android:windowLightNavigationBar">true</item>
                   <item name="android:statusBarColor">@android:color/transparent</item>
@@ -83,7 +83,7 @@ jobs:
 
           cat > app/src/main/res/values-night/themes.xml <<'EOF'
           <resources>
-              <style name="T" parent="android:Theme.DeviceDefault.DayNight">
+              <style name="T" parent="android:Theme.DeviceDefault.NoActionBar">
                   <item name="android:windowLightStatusBar">false</item>
                   <item name="android:windowLightNavigationBar">false</item>
                   <item name="android:statusBarColor">@android:color/transparent</item>
@@ -143,14 +143,14 @@ jobs:
 
               override fun onCreate(b: Bundle?) {
                   super.onCreate(b)
-                  window.setDecorFitsSystemWindows(false)
+                  val night = (resources.configuration.uiMode and 0x30) == 0x20; var fl = 0x100 or 0x400 or 0x200; if (!night) fl = fl or 0x2000 or 0x10; window.decorView.systemUiVisibility = fl
                   window.statusBarColor = 0; window.navigationBarColor = 0
                   root = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
                       setBackgroundColor(getColor(R.color.bg))
                       setOnApplyWindowInsetsListener { v, i ->
-                          val s = i.getInsets(WindowInsets.Type.systemBars())
-                          v.setPadding(dp(14), s.top + dp(10), dp(14), s.bottom + dp(10)); i
+                          
+                          v.setPadding(dp(14), i.systemWindowInsetTop + dp(10), dp(14), i.systemWindowInsetBottom + dp(10)); i
                       }
                   }
                   setContentView(root)
@@ -158,15 +158,19 @@ jobs:
 
               override fun onResume() {
                   super.onResume()
-                  if (root.childCount == 0 || !Environment.isExternalStorageManager()) start()
+                  if (root.childCount == 0 || !granted()) start()
               }
 
+              fun granted() = if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager() else checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE") == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+              override fun onRequestPermissionsResult(c: Int, p: Array<String>, g: IntArray) { start() }
+
               fun start() {
-                  if (!Environment.isExternalStorageManager()) {
+                  if (!granted()) {
                       val l = page("Storage permission")
                       l.addView(tv("App ko /storage/emulated/0/GitActonBuild folder banane ke liye storage access chahiye."))
                       l.addView(btn("Allow storage") {
-                          startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
+                          if (Build.VERSION.SDK_INT >= 30) startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))) else requestPermissions(arrayOf("android.permission.WRITE_EXTERNAL_STORAGE", "android.permission.READ_EXTERNAL_STORAGE"), 1)
                       })
                   } else { base.mkdirs(); if (tok.isEmpty()) tokenScreen() else repos() }
               }
