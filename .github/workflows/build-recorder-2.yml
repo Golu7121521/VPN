@@ -85,8 +85,8 @@ jobs:
                 applicationId "com.gamerec.lite"
                 minSdk 21
                 targetSdk 36
-                versionCode 10
-                versionName "2.4"
+                versionCode 11
+                versionName "2.5"
             }
 
             signingConfigs {
@@ -1465,6 +1465,9 @@ jobs:
             private final MediaProjection mp;
             private final Runnable onProjectionStopped;
             private int w, h;
+            private int w16, h16;
+            private final int natW, natH, targetShort;
+            private final boolean landscape;
             private final int dpi, bitrate, audioMode;
             private int fps;
             private float refreshMax = 60f;
@@ -1523,9 +1526,14 @@ jobs:
                 double ratio = (double) Math.max(dm.widthPixels, dm.heightPixels) / nativeShort;
                 int s = align16(target);
                 int l = align16((int) Math.round(target * ratio));
-                boolean landscape = ori == 1 || (ori == 0 && dm.widthPixels > dm.heightPixels);
+                this.landscape = ori == 1 || (ori == 0 && dm.widthPixels > dm.heightPixels);
+                this.natW = dm.widthPixels;
+                this.natH = dm.heightPixels;
+                this.targetShort = target;
                 this.w = landscape ? l : s;
                 this.h = landscape ? s : l;
+                this.w16 = this.w;
+                this.h16 = this.h;
                 this.dpi = dm.densityDpi;
             }
 
@@ -1590,15 +1598,37 @@ jobs:
                 }
             }
 
+            // Size that matches the screen's own proportions exactly, rounded to what this encoder
+            // needs. When the recording size equals the screen size the system can skip scaling,
+            // which keeps the capture light and the frame timing steady.
+            private static int roundTo(int v, int a) {
+                return Math.max(a, Math.round((float) v / a) * a);
+            }
+
+            private void applyAlignedSize(MediaCodecInfo.VideoCapabilities vc) {
+                try {
+                    int wa = Math.max(2, vc.getWidthAlignment());
+                    int ha = Math.max(2, vc.getHeightAlignment());
+                    int nl = Math.max(natW, natH);
+                    int ns = Math.min(natW, natH);
+                    int sl = (int) Math.round(nl * ((double) targetShort / ns));
+                    int tw = landscape ? sl : targetShort;
+                    int th = landscape ? targetShort : sl;
+                    w = roundTo(tw, wa);
+                    h = roundTo(th, ha);
+                } catch (Exception ignored) { }
+            }
+
             private void initVideoEncoder() throws Exception {
                 Exception last = null;
-                for (int attempt = 0; attempt < 4; attempt++) {
+                for (int attempt = 0; attempt < 5; attempt++) {
                     for (int mode = 0; mode < 2; mode++) {
                         try {
                             vEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
                             MediaCodecInfo.CodecCapabilities caps = null;
                             try {
                                 caps = vEnc.getCodecInfo().getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC);
+                                if (attempt == 0 && mode == 0) applyAlignedSize(caps.getVideoCapabilities());
                                 if (mode == 0) fitSize(caps.getVideoCapabilities());
                             } catch (Exception ignored) { }
                             vEnc.configure(videoFormat(caps, mode == 0), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
@@ -1612,8 +1642,13 @@ jobs:
                             surface = null;
                         }
                     }
-                    w = Math.max(16, ((int) (w * 0.75)) / 16 * 16);
-                    h = Math.max(16, ((int) (h * 0.75)) / 16 * 16);
+                    if (attempt == 0) {
+                        w = w16;
+                        h = h16;
+                    } else {
+                        w = Math.max(16, ((int) (w * 0.75)) / 16 * 16);
+                        h = Math.max(16, ((int) (h * 0.75)) / 16 * 16);
+                    }
                 }
                 throw last != null ? last : new Exception("Video encoder error");
             }
@@ -1662,7 +1697,7 @@ jobs:
                 }
                 if (encMaxFps > 0 && hint > encMaxFps) hint = encMaxFps;
                 vf.setInteger(MediaFormat.KEY_FRAME_RATE, hint);
-                vf.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
+                vf.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2);
                 if (full) {
                     vf.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 500000L);
                     vf.setInteger(MediaFormat.KEY_PRIORITY, 0);
