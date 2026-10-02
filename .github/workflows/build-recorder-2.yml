@@ -85,8 +85,8 @@ jobs:
                 applicationId "com.gamerec.lite"
                 minSdk 21
                 targetSdk 36
-                versionCode 8
-                versionName "2.2"
+                versionCode 9
+                versionName "2.3"
             }
 
             signingConfigs {
@@ -156,13 +156,12 @@ jobs:
             android:viewportWidth="108"
             android:viewportHeight="108">
             <path
-                android:fillColor="#00000000"
-                android:pathData="M28,54a26,26 0 1,0 52,0a26,26 0 1,0 -52,0z"
-                android:strokeColor="#00E5FF"
-                android:strokeWidth="5" />
+                android:fillColor="#00E5FF"
+                android:fillType="evenOdd"
+                android:pathData="M38,36H70C77,36 82,41 83,48L85,62C86,68 82,73 77,73C73,73 71,70 68,66L40,66C37,70 35,73 31,73C26,73 22,68 23,62L25,48C26,41 31,36 38,36Z M36,48H40V51H43V55H40V58H36V55H33V51H36Z M67,49a3,3 0 1,0 6,0a3,3 0 1,0 -6,0z M73,56a3,3 0 1,0 6,0a3,3 0 1,0 -6,0z" />
             <path
                 android:fillColor="#FF1744"
-                android:pathData="M40,54a14,14 0 1,0 28,0a14,14 0 1,0 -28,0z" />
+                android:pathData="M67,49a3,3 0 1,0 6,0a3,3 0 1,0 -6,0z" />
         </vector>
         EOF
 
@@ -175,13 +174,9 @@ jobs:
             android:viewportWidth="108"
             android:viewportHeight="108">
             <path
-                android:fillColor="#00000000"
-                android:pathData="M28,54a26,26 0 1,0 52,0a26,26 0 1,0 -52,0z"
-                android:strokeColor="#000000"
-                android:strokeWidth="5" />
-            <path
                 android:fillColor="#000000"
-                android:pathData="M40,54a14,14 0 1,0 28,0a14,14 0 1,0 -28,0z" />
+                android:fillType="evenOdd"
+                android:pathData="M38,36H70C77,36 82,41 83,48L85,62C86,68 82,73 77,73C73,73 71,70 68,66L40,66C37,70 35,73 31,73C26,73 22,68 23,62L25,48C26,41 31,36 38,36Z M36,48H40V51H43V55H40V58H36V55H33V51H36Z M67,49a3,3 0 1,0 6,0a3,3 0 1,0 -6,0z M73,56a3,3 0 1,0 6,0a3,3 0 1,0 -6,0z" />
         </vector>
         EOF
 
@@ -205,16 +200,16 @@ jobs:
         <vector xmlns:android="http://schemas.android.com/apk/res/android"
             android:width="24dp"
             android:height="24dp"
-            android:viewportWidth="24"
-            android:viewportHeight="24">
-            <path
-                android:fillColor="#00000000"
-                android:pathData="M3,12a9,9 0 1,0 18,0a9,9 0 1,0 -18,0z"
-                android:strokeColor="#FFFFFF"
-                android:strokeWidth="2" />
-            <path
-                android:fillColor="#FFFFFF"
-                android:pathData="M8,12a4,4 0 1,0 8,0a4,4 0 1,0 -8,0z" />
+            android:viewportWidth="64"
+            android:viewportHeight="64">
+            <group
+                android:translateX="-22"
+                android:translateY="-22">
+                <path
+                    android:fillColor="#FFFFFF"
+                    android:fillType="evenOdd"
+                    android:pathData="M38,36H70C77,36 82,41 83,48L85,62C86,68 82,73 77,73C73,73 71,70 68,66L40,66C37,70 35,73 31,73C26,73 22,68 23,62L25,48C26,41 31,36 38,36Z M36,48H40V51H43V55H40V58H36V55H33V51H36Z M67,49a3,3 0 1,0 6,0a3,3 0 1,0 -6,0z M73,56a3,3 0 1,0 6,0a3,3 0 1,0 -6,0z" />
+            </group>
         </vector>
         EOF
 
@@ -239,14 +234,19 @@ jobs:
             <path
                 android:fillColor="#0B0E14"
                 android:pathData="M24,0H84A24,24 0 0 1 108,24V84A24,24 0 0 1 84,108H24A24,24 0 0 1 0,84V24A24,24 0 0 1 24,0Z" />
-            <path
-                android:fillColor="#00000000"
-                android:pathData="M24,54a30,30 0 1,0 60,0a30,30 0 1,0 -60,0z"
-                android:strokeColor="#00E5FF"
-                android:strokeWidth="6" />
-            <path
-                android:fillColor="#FF1744"
-                android:pathData="M38,54a16,16 0 1,0 32,0a16,16 0 1,0 -32,0z" />
+            <group
+                android:pivotX="54"
+                android:pivotY="54"
+                android:scaleX="1.25"
+                android:scaleY="1.25">
+                <path
+                    android:fillColor="#00E5FF"
+                    android:fillType="evenOdd"
+                    android:pathData="M38,36H70C77,36 82,41 83,48L85,62C86,68 82,73 77,73C73,73 71,70 68,66L40,66C37,70 35,73 31,73C26,73 22,68 23,62L25,48C26,41 31,36 38,36Z M36,48H40V51H43V55H40V58H36V55H33V51H36Z M67,49a3,3 0 1,0 6,0a3,3 0 1,0 -6,0z M73,56a3,3 0 1,0 6,0a3,3 0 1,0 -6,0z" />
+                <path
+                    android:fillColor="#FF1744"
+                    android:pathData="M67,49a3,3 0 1,0 6,0a3,3 0 1,0 -6,0z" />
+            </group>
         </vector>
         EOF
 
@@ -260,6 +260,7 @@ jobs:
             <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
             <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
             <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+            <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
             <uses-permission
                 android:name="android.permission.WRITE_EXTERNAL_STORAGE"
                 android:maxSdkVersion="28" />
@@ -356,6 +357,8 @@ jobs:
             private final String[] oriLabels = {"Auto", "Landscape", "Portrait"};
 
             private DD ddRes, ddFps, ddBit;
+            private LinearLayout card;
+            private Button startBtn;
             private DeviceCaps caps;
             private Seg segAudio, segOri;
             private SharedPreferences prefs;
@@ -593,7 +596,7 @@ jobs:
                 title.setPadding(0, 0, 0, dp(22));
                 root.addView(title);
 
-                LinearLayout card = new LinearLayout(this);
+                card = new LinearLayout(this);
                 card.setOrientation(LinearLayout.VERTICAL);
                 card.setPadding(dp(16), dp(16), dp(16), dp(18));
                 card.setBackground(rounded(C_CARD, 18, C_LINE));
@@ -631,10 +634,7 @@ jobs:
                 start.setTypeface(Typeface.DEFAULT_BOLD);
                 start.setLetterSpacing(0.08f);
                 start.setStateListAnimator(null);
-                GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                        new int[]{0xFFFF1744, 0xFFFF6D00});
-                bg.setCornerRadius(dp(30));
-                start.setBackground(bg);
+                startBtn = start;
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, dp(60));
                 lp.topMargin = dp(26);
@@ -703,12 +703,89 @@ jobs:
             }
 
             @Override
+            protected void onResume() {
+                super.onResume();
+                RecorderService.listener = this::updateButton;
+                updateButton();
+            }
+
+            @Override
             protected void onPause() {
+                RecorderService.listener = null;
                 saveSettings();
                 super.onPause();
             }
 
+            private void setEnabledRecursive(View v, boolean en) {
+                v.setEnabled(en);
+                if (v instanceof ViewGroup) {
+                    ViewGroup g = (ViewGroup) v;
+                    for (int i = 0; i < g.getChildCount(); i++) setEnabledRecursive(g.getChildAt(i), en);
+                }
+            }
+
+            // Start button turns into a Stop button while a recording (or countdown) is running
+            private void updateButton() {
+                int st = RecorderService.state;
+                boolean active = st == RecorderService.STATE_COUNTDOWN || st == RecorderService.STATE_RECORDING;
+                boolean saving = st == RecorderService.STATE_SAVING;
+                if (saving) {
+                    startBtn.setText("SAVING...");
+                    startBtn.setEnabled(false);
+                    startBtn.setAlpha(0.6f);
+                } else {
+                    startBtn.setEnabled(true);
+                    startBtn.setAlpha(1f);
+                    startBtn.setText(active ? "STOP RECORDING" : "START RECORDING");
+                }
+                if (active || saving) {
+                    GradientDrawable g = new GradientDrawable();
+                    g.setColor(0xFF2B1218);
+                    g.setCornerRadius(dp(30));
+                    g.setStroke(dp(2), 0xFFFF1744);
+                    startBtn.setBackground(g);
+                } else {
+                    GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                            new int[]{0xFFFF1744, 0xFFFF6D00});
+                    g.setCornerRadius(dp(30));
+                    startBtn.setBackground(g);
+                }
+                boolean editable = !(active || saving);
+                card.setAlpha(editable ? 1f : 0.45f);
+                setEnabledRecursive(card, editable);
+            }
+
             private void onStartClicked() {
+                int st = RecorderService.state;
+                if (st == RecorderService.STATE_COUNTDOWN || st == RecorderService.STATE_RECORDING) {
+                    startService(new Intent(this, RecorderService.class).setAction(RecorderService.ACTION_STOP));
+                    return;
+                }
+                if (st == RecorderService.STATE_SAVING) return;
+
+                // Ask once for the optional on-screen countdown permission
+                if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)
+                        && !prefs.getBoolean("overlay_asked", false)) {
+                    prefs.edit().putBoolean("overlay_asked", true).apply();
+                    new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                            .setTitle("Show countdown on screen?")
+                            .setMessage("Allow \"Display over other apps\" to see the 4-3-2-1 countdown on your screen "
+                                    + "before recording starts. Without it, the countdown is shown only in the notification.")
+                            .setCancelable(false)
+                            .setPositiveButton("Allow", (dlg, which) -> {
+                                try {
+                                    startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            Uri.parse("package:" + getPackageName())));
+                                } catch (Exception ignored) { }
+                            })
+                            .setNegativeButton("Skip", (dlg, which) -> beginStartFlow())
+                            .show();
+                    return;
+                }
+                beginStartFlow();
+            }
+
+            private void beginStartFlow() {
                 saveSettings();
                 audioDenied = false;
                 List<String> need = new ArrayList<>();
@@ -790,6 +867,10 @@ jobs:
         import android.app.Service;
         import android.content.Intent;
         import android.content.pm.ServiceInfo;
+        import android.graphics.Color;
+        import android.graphics.PixelFormat;
+        import android.graphics.Typeface;
+        import android.graphics.drawable.GradientDrawable;
         import android.media.projection.MediaProjection;
         import android.media.projection.MediaProjectionManager;
         import android.net.Uri;
@@ -797,6 +878,11 @@ jobs:
         import android.os.Handler;
         import android.os.IBinder;
         import android.os.Looper;
+        import android.provider.Settings;
+        import android.util.TypedValue;
+        import android.view.Gravity;
+        import android.view.WindowManager;
+        import android.widget.TextView;
         import android.widget.Toast;
 
         import java.util.Locale;
@@ -808,12 +894,27 @@ jobs:
             public static final String ACTION_RESUME = "com.gamerec.lite.RESUME";
             public static final String ACTION_STOP = "com.gamerec.lite.STOP";
 
+            public static final int STATE_IDLE = 0;
+            public static final int STATE_COUNTDOWN = 1;
+            public static final int STATE_RECORDING = 2;
+            public static final int STATE_SAVING = 3;
+
+            // Shared with MainActivity so the button can show Start / Stop
+            public static volatile int state = STATE_IDLE;
+            public static volatile Runnable listener;
+            private static final Handler MAIN = new Handler(Looper.getMainLooper());
+
+            static void setState(int s) {
+                state = s;
+                Runnable l = listener;
+                if (l != null) MAIN.post(l);
+            }
+
             private static final String CHANNEL_ID = "rec_channel";
             private static final int NOTIF_ID = 1;
             private static final int SAVED_ID = 2;
-            private static final int AUTO_COUNTDOWN_SEC = 4;
+            private static final int COUNTDOWN_SEC = 4;
 
-            private final Handler handler = new Handler(Looper.getMainLooper());
             private Recorder rec;
             private boolean paused = false;
             private boolean starting = false;
@@ -821,6 +922,19 @@ jobs:
             private Runnable tick;
             private long runStart = 0, accum = 0;
             private String summary = "";
+
+            private WindowManager wm;
+            private TextView overlay;
+
+            private final Runnable timeTick = new Runnable() {
+                @Override
+                public void run() {
+                    if (rec != null && !paused) {
+                        updateNotification();
+                        MAIN.postDelayed(this, 1000);
+                    }
+                }
+            };
 
             @Override
             public IBinder onBind(Intent intent) {
@@ -836,13 +950,14 @@ jobs:
                 }
                 switch (action) {
                     case ACTION_START:
-                        if (rec == null && !starting) startRecording(intent);
+                        if (rec == null && !starting && state != STATE_SAVING) startRecording(intent);
                         break;
                     case ACTION_PAUSE:
                         if (rec != null && !paused) {
                             rec.pause();
                             accum += System.currentTimeMillis() - runStart;
                             paused = true;
+                            MAIN.removeCallbacks(timeTick);
                             updateNotification();
                         }
                         break;
@@ -852,6 +967,8 @@ jobs:
                             runStart = System.currentTimeMillis();
                             paused = false;
                             updateNotification();
+                            MAIN.removeCallbacks(timeTick);
+                            MAIN.postDelayed(timeTick, 1000);
                         }
                         break;
                     case ACTION_STOP:
@@ -878,7 +995,7 @@ jobs:
                 paused = false;
                 accum = 0;
                 starting = true;
-                countdown = ori == 0 ? AUTO_COUNTDOWN_SEC : 0;
+                countdown = COUNTDOWN_SEC;
 
                 try {
                     Notification n = buildNotification();
@@ -891,29 +1008,36 @@ jobs:
                     }
                 } catch (Exception e) {
                     starting = false;
+                    setState(STATE_IDLE);
                     Toast.makeText(this, "Could not start recording: " + e.getMessage(), Toast.LENGTH_LONG).show();
                     stopSelf();
                     return;
                 }
 
-                if (countdown > 0) {
-                    tick = new Runnable() {
-                        @Override
-                        public void run() {
-                            countdown--;
-                            if (countdown > 0) {
-                                updateNotification();
-                                handler.postDelayed(this, 1000);
-                            } else {
-                                tick = null;
-                                beginRecording(intent, audio, ori);
-                            }
+                setState(STATE_COUNTDOWN);
+                showOverlay(countdown);
+                tick = new Runnable() {
+                    @Override
+                    public void run() {
+                        countdown--;
+                        if (countdown > 0) {
+                            updateNotification();
+                            setOverlayNumber(countdown);
+                            MAIN.postDelayed(this, 1000);
+                        } else {
+                            tick = null;
+                            hideOverlay();
+                            // small gap so the overlay is gone before the first recorded frame
+                            MAIN.postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (starting) beginRecording(intent, audio, ori);
+                                }
+                            }, 250);
                         }
-                    };
-                    handler.postDelayed(tick, 1000);
-                } else {
-                    beginRecording(intent, audio, ori);
-                }
+                    }
+                };
+                MAIN.postDelayed(tick, 1000);
             }
 
             private void beginRecording(Intent intent, int audio, int ori) {
@@ -936,19 +1060,68 @@ jobs:
                     rec = r;
                     accum = 0;
                     runStart = System.currentTimeMillis();
+                    setState(STATE_RECORDING);
                     updateNotification();
+                    MAIN.removeCallbacks(timeTick);
+                    MAIN.postDelayed(timeTick, 1000);
                 } catch (Exception e) {
                     if (r != null) {
                         try { r.stop(); } catch (Exception ignored) { }
                     } else if (mp != null) {
                         try { mp.stop(); } catch (Exception ignored) { }
                     }
+                    setState(STATE_IDLE);
                     Toast.makeText(this, "Could not start recording: " + e.getMessage(), Toast.LENGTH_LONG).show();
                     stopForeground(true);
                     stopSelf();
                 }
             }
 
+            // ---------- on-screen countdown (needs "Display over other apps"; optional) ----------
+            private void showOverlay(int number) {
+                if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) return;
+                try {
+                    wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+                    TextView tv = new TextView(this);
+                    tv.setGravity(Gravity.CENTER);
+                    tv.setTextColor(Color.WHITE);
+                    tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 72);
+                    tv.setTypeface(Typeface.DEFAULT_BOLD);
+                    GradientDrawable bg = new GradientDrawable();
+                    bg.setShape(GradientDrawable.OVAL);
+                    bg.setColor(0xCC000000);
+                    bg.setStroke((int) (3 * getResources().getDisplayMetrics().density), 0xFFFF1744);
+                    tv.setBackground(bg);
+                    tv.setText(String.valueOf(number));
+                    int size = (int) (150 * getResources().getDisplayMetrics().density);
+                    int type = Build.VERSION.SDK_INT >= 26
+                            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                            : WindowManager.LayoutParams.TYPE_PHONE;
+                    WindowManager.LayoutParams lp = new WindowManager.LayoutParams(size, size, type,
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                                    | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                                    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                            PixelFormat.TRANSLUCENT);
+                    lp.gravity = Gravity.CENTER;
+                    wm.addView(tv, lp);
+                    overlay = tv;
+                } catch (Throwable t) {
+                    overlay = null;
+                }
+            }
+
+            private void setOverlayNumber(int number) {
+                if (overlay != null) overlay.setText(String.valueOf(number));
+            }
+
+            private void hideOverlay() {
+                if (overlay != null && wm != null) {
+                    try { wm.removeView(overlay); } catch (Throwable ignored) { }
+                }
+                overlay = null;
+            }
+
+            // ---------- notification ----------
             private PendingIntent action(String action, int code) {
                 Intent i = new Intent(this, RecorderService.class).setAction(action);
                 int flags = PendingIntent.FLAG_UPDATE_CURRENT
@@ -961,6 +1134,19 @@ jobs:
                     return new Notification.Builder(this, CHANNEL_ID);
                 }
                 return new Notification.Builder(this).setPriority(Notification.PRIORITY_LOW);
+            }
+
+            private long elapsedMs() {
+                return accum + (paused ? 0 : System.currentTimeMillis() - runStart);
+            }
+
+            private static String fmt(long ms) {
+                long t = ms / 1000;
+                long h = t / 3600;
+                long m = (t % 3600) / 60;
+                long s = t % 60;
+                if (h > 0) return String.format(Locale.US, "%d:%02d:%02d", h, m, s);
+                return String.format(Locale.US, "%02d:%02d", m, s);
             }
 
             private Notification buildNotification() {
@@ -978,12 +1164,11 @@ jobs:
                     text = "Open your game now";
                     color = 0xFFFFD600;
                 } else if (ph) {
-                    long sec = accum / 1000;
-                    title = "Paused";
-                    text = String.format(Locale.US, "Paused at %02d:%02d | ", sec / 60, sec % 60) + summary;
+                    title = "Paused  " + fmt(elapsedMs());
+                    text = summary;
                     color = 0xFFFFAB00;
                 } else {
-                    title = "Recording";
+                    title = "Recording  " + fmt(elapsedMs());
                     text = summary;
                     color = 0xFFFF1744;
                 }
@@ -994,6 +1179,7 @@ jobs:
                         .setSubText("Game Recorder")
                         .setContentTitle(title)
                         .setContentText(text)
+                        .setShowWhen(false)
                         .setOngoing(true)
                         .setOnlyAlertOnce(true);
                 if (!starting) {
@@ -1004,11 +1190,6 @@ jobs:
                     nb.addAction(toggle);
                 }
                 nb.addAction(stop);
-                if (!starting && !ph) {
-                    nb.setShowWhen(true).setUsesChronometer(true).setWhen(runStart - accum);
-                } else {
-                    nb.setShowWhen(false);
-                }
                 return nb.build();
             }
 
@@ -1019,16 +1200,20 @@ jobs:
             private void stopAndSave() {
                 final Recorder r = rec;
                 rec = null;
+                MAIN.removeCallbacks(timeTick);
                 if (r == null) {
                     if (starting) {
-                        if (tick != null) handler.removeCallbacks(tick);
+                        if (tick != null) MAIN.removeCallbacks(tick);
                         tick = null;
                         starting = false;
+                        hideOverlay();
                         stopForeground(true);
                     }
+                    setState(STATE_IDLE);
                     stopSelf();
                     return;
                 }
+                setState(STATE_SAVING);
                 new Thread(() -> {
                     Uri u = null;
                     try {
@@ -1036,6 +1221,7 @@ jobs:
                     } catch (Exception ignored) { }
                     stopForeground(true);
                     notifySaved(u, r.saved);
+                    setState(STATE_IDLE);
                     stopSelf();
                 }).start();
             }
@@ -1063,164 +1249,18 @@ jobs:
 
             @Override
             public void onDestroy() {
-                if (tick != null) handler.removeCallbacks(tick);
+                MAIN.removeCallbacks(timeTick);
+                if (tick != null) MAIN.removeCallbacks(tick);
                 tick = null;
+                starting = false;
+                hideOverlay();
                 Recorder r = rec;
                 rec = null;
                 if (r != null) {
                     try { r.stop(); } catch (Exception ignored) { }
                 }
+                setState(STATE_IDLE);
                 super.onDestroy();
-            }
-        }
-        EOF
-
-        mkdir -p app/src/main/java/com/gamerec/lite
-        cat << 'EOF' > app/src/main/java/com/gamerec/lite/DeviceCaps.java
-        package com.gamerec.lite;
-
-        import android.content.Context;
-        import android.hardware.display.DisplayManager;
-        import android.media.MediaCodecInfo;
-        import android.media.MediaCodecList;
-        import android.os.Build;
-        import android.util.DisplayMetrics;
-        import android.util.Range;
-        import android.view.Display;
-
-        import java.util.ArrayList;
-        import java.util.List;
-        import java.util.Locale;
-
-        // Reads what this phone can actually do (screen size, refresh rate, H.264 encoder limits)
-        final class DeviceCaps {
-
-            private final int nativeShort;
-            private final double ratio;
-            private float maxRefresh = 60f;
-            private MediaCodecInfo.VideoCapabilities vc;
-
-            DeviceCaps(Context ctx) {
-                int ns = 1080;
-                double ra = 2.0;
-                try {
-                    DisplayMetrics dm = new DisplayMetrics();
-                    Display d = ((DisplayManager) ctx.getSystemService(Context.DISPLAY_SERVICE))
-                            .getDisplay(Display.DEFAULT_DISPLAY);
-                    d.getRealMetrics(dm);
-                    int mn = Math.min(dm.widthPixels, dm.heightPixels);
-                    if (mn > 0) {
-                        ns = mn;
-                        ra = (double) Math.max(dm.widthPixels, dm.heightPixels) / mn;
-                    }
-                    maxRefresh = d.getRefreshRate();
-                    if (Build.VERSION.SDK_INT >= 23) {
-                        for (Display.Mode m : d.getSupportedModes()) {
-                            maxRefresh = Math.max(maxRefresh, m.getRefreshRate());
-                        }
-                    }
-                } catch (Exception ignored) { }
-                nativeShort = ns;
-                ratio = ra;
-                findEncoder();
-            }
-
-            private void findEncoder() {
-                try {
-                    MediaCodecInfo[] infos = new MediaCodecList(MediaCodecList.REGULAR_CODECS).getCodecInfos();
-                    MediaCodecInfo.VideoCapabilities fallback = null;
-                    for (MediaCodecInfo info : infos) {
-                        if (!info.isEncoder()) continue;
-                        for (String t : info.getSupportedTypes()) {
-                            if (!t.equalsIgnoreCase("video/avc")) continue;
-                            MediaCodecInfo.VideoCapabilities c;
-                            try {
-                                c = info.getCapabilitiesForType(t).getVideoCapabilities();
-                            } catch (Exception e) {
-                                continue;
-                            }
-                            if (c == null) continue;
-                            String n = info.getName().toLowerCase(Locale.US);
-                            boolean soft = n.startsWith("omx.google.") || n.startsWith("c2.android.");
-                            if (!soft) {
-                                vc = c;
-                                return;
-                            }
-                            if (fallback == null) fallback = c;
-                        }
-                    }
-                    vc = fallback;
-                } catch (Exception ignored) { }
-            }
-
-            // {long side, short side} of the recording for a given short-side resolution
-            private int[] dims(int res) {
-                int target = Math.min(res, nativeShort);
-                int s = Recorder.align16(target);
-                int l = Recorder.align16((int) Math.round(target * ratio));
-                return new int[]{l, s};
-            }
-
-            int[] resolutions(int[] all) {
-                List<Integer> out = new ArrayList<>();
-                for (int c : all) {
-                    if (c > nativeShort + 8) continue;
-                    if (c > 480 && vc != null) {
-                        int[] d = dims(c);
-                        try {
-                            if (!vc.isSizeSupported(d[0], d[1])) continue;
-                        } catch (Exception ignored) { }
-                    }
-                    out.add(c);
-                }
-                if (out.isEmpty()) out.add(all[0]);
-                return toArray(out);
-            }
-
-            int[] fps(int[] all, int res) {
-                float cap = maxRefresh + 1f;
-                if (vc != null) {
-                    int[] d = dims(res);
-                    try {
-                        Range<Double> r = vc.getSupportedFrameRatesFor(d[0], d[1]);
-                        cap = Math.min(cap, (float) (r.getUpper() + 0.5));
-                    } catch (Exception ignored) { }
-                }
-                List<Integer> out = new ArrayList<>();
-                for (int c : all) {
-                    if (c <= cap) out.add(c);
-                }
-                if (out.isEmpty()) out.add(all[0]);
-                return toArray(out);
-            }
-
-            int[] bitrates(int[] allMbps) {
-                long lo = 0;
-                long hi = Long.MAX_VALUE;
-                if (vc != null) {
-                    try {
-                        Range<Integer> r = vc.getBitrateRange();
-                        lo = r.getLower();
-                        hi = r.getUpper();
-                    } catch (Exception ignored) { }
-                }
-                List<Integer> out = new ArrayList<>();
-                for (int c : allMbps) {
-                    long bps = c * 1000000L;
-                    if (bps >= lo && bps <= hi) out.add(c);
-                }
-                if (out.isEmpty()) {
-                    for (int c : allMbps) {
-                        if (c <= 20) out.add(c);
-                    }
-                }
-                return toArray(out);
-            }
-
-            private static int[] toArray(List<Integer> l) {
-                int[] a = new int[l.size()];
-                for (int i = 0; i < a.length; i++) a[i] = l.get(i);
-                return a;
             }
         }
         EOF
