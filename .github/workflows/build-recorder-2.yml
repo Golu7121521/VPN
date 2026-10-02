@@ -70,8 +70,8 @@ jobs:
                 applicationId "com.gamerec.lite"
                 minSdk 29
                 targetSdk 34
-                versionCode 4
-                versionName "1.3"
+                versionCode 5
+                versionName "1.4"
                 ndk {
                     abiFilters 'arm64-v8a'
                 }
@@ -170,11 +170,9 @@ jobs:
         import android.view.WindowInsets;
         import android.view.WindowInsetsController;
         import android.view.WindowManager;
-        import android.widget.ArrayAdapter;
         import android.widget.Button;
         import android.widget.LinearLayout;
         import android.widget.ScrollView;
-        import android.widget.Spinner;
         import android.widget.TextView;
         import android.widget.Toast;
 
@@ -193,18 +191,17 @@ jobs:
             private static final int C_FIELD = 0xFF0F131C;
             private static final int C_CYAN = 0xFF00E5FF;
             private static final int C_MUTED = 0xFF7A889B;
-            private static final int C_WHITE = 0xFFF0F4F8;
 
             private final String[] resLabels = {"480p", "720p", "1080p"};
             private final int[] resValues = {480, 720, 1080};
-            private final String[] fpsLabels = {"24 fps", "30 fps", "60 fps"};
+            private final String[] fpsLabels = {"24", "30", "60"};
             private final int[] fpsValues = {24, 30, 60};
-            private final String[] bitLabels = {"2 Mbps", "4 Mbps", "8 Mbps", "12 Mbps", "16 Mbps"};
+            private final String[] bitLabels = {"2", "4", "8", "12", "16"};
             private final int[] bitValues = {2, 4, 8, 12, 16};
-            private final String[] audioLabels = {"Device audio", "Device audio + Microphone"};
+            private final String[] audioLabels = {"Device audio", "Device + Mic"};
             private final String[] oriLabels = {"Auto", "Landscape", "Portrait"};
 
-            private Spinner spRes, spFps, spBit, spAudio, spOri;
+            private Seg segRes, segFps, segBit, segAudio, segOri;
             private SharedPreferences prefs;
             private float density;
 
@@ -218,6 +215,59 @@ jobs:
                 g.setCornerRadius(dp(radiusDp));
                 if (stroke != 0) g.setStroke(dp(1), stroke);
                 return g;
+            }
+
+            private class Seg {
+                int sel;
+                final TextView[] tabs;
+
+                Seg(LinearLayout parent, String label, String[] items, int initial) {
+                    TextView lb = new TextView(MainActivity.this);
+                    lb.setText(label);
+                    lb.setTextColor(C_MUTED);
+                    lb.setTextSize(11);
+                    lb.setLetterSpacing(0.1f);
+                    lb.setPadding(dp(2), dp(16), 0, dp(6));
+                    parent.addView(lb);
+
+                    LinearLayout row = new LinearLayout(MainActivity.this);
+                    row.setOrientation(LinearLayout.HORIZONTAL);
+                    row.setPadding(dp(4), dp(4), dp(4), dp(4));
+                    row.setBackground(rounded(C_FIELD, 14, C_LINE));
+                    tabs = new TextView[items.length];
+                    sel = Math.max(0, Math.min(initial, items.length - 1));
+                    for (int i = 0; i < items.length; i++) {
+                        final int idx = i;
+                        TextView t = new TextView(MainActivity.this);
+                        t.setText(items[i]);
+                        t.setGravity(Gravity.CENTER);
+                        t.setTextSize(14);
+                        t.setPadding(dp(4), dp(12), dp(4), dp(12));
+                        t.setOnClickListener(v -> {
+                            sel = idx;
+                            refresh();
+                        });
+                        tabs[i] = t;
+                        row.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                    }
+                    parent.addView(row, new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                    refresh();
+                }
+
+                void refresh() {
+                    for (int i = 0; i < tabs.length; i++) {
+                        if (i == sel) {
+                            tabs[i].setBackground(rounded(C_CYAN, 10, 0));
+                            tabs[i].setTextColor(C_BG1);
+                            tabs[i].setTypeface(Typeface.DEFAULT_BOLD);
+                        } else {
+                            tabs[i].setBackground(null);
+                            tabs[i].setTextColor(C_MUTED);
+                            tabs[i].setTypeface(Typeface.DEFAULT);
+                        }
+                    }
+                }
             }
 
             @Override
@@ -271,14 +321,14 @@ jobs:
                 head.setLetterSpacing(0.12f);
                 card.addView(head);
 
-                spRes = addSpinner(card, "Resolution", resLabels, prefs.getInt("res", 1));
-                spFps = addSpinner(card, "FPS", fpsLabels, prefs.getInt("fps", 1));
-                spBit = addSpinner(card, "Bitrate", bitLabels, prefs.getInt("bit", 2));
-                spAudio = addSpinner(card, "Audio", audioLabels, prefs.getInt("audio", 0));
-                spOri = addSpinner(card, "Orientation", oriLabels, prefs.getInt("ori", 0));
+                segRes = new Seg(card, "RESOLUTION", resLabels, prefs.getInt("res", 1));
+                segFps = new Seg(card, "FPS", fpsLabels, prefs.getInt("fps", 1));
+                segBit = new Seg(card, "BITRATE (MBPS)", bitLabels, prefs.getInt("bit", 2));
+                segAudio = new Seg(card, "AUDIO", audioLabels, prefs.getInt("audio", 0));
+                segOri = new Seg(card, "ORIENTATION", oriLabels, prefs.getInt("ori", 0));
 
                 Button start = new Button(this);
-                start.setText("\u25CF  START RECORDING");
+                start.setText("START RECORDING");
                 start.setAllCaps(false);
                 start.setTextColor(Color.WHITE);
                 start.setTextSize(16);
@@ -294,14 +344,6 @@ jobs:
                 lp.topMargin = dp(26);
                 root.addView(start, lp);
                 start.setOnClickListener(v -> onStartClicked());
-
-                TextView tip = new TextView(this);
-                tip.setText("Auto orientation: Start dabane ke 4 second baad jo orientation hogi wahi use hogi, to Start dabake game kholo.\n\nRecording ke time Pause / Resume / Stop & Save notification se karo. Video Movies/GameRec folder mein save hogi.");
-                tip.setTextColor(C_MUTED);
-                tip.setTextSize(12);
-                tip.setLineSpacing(0, 1.2f);
-                tip.setPadding(dp(4), dp(20), dp(4), 0);
-                root.addView(tip);
 
                 final ScrollView sv = new ScrollView(this);
                 sv.setFillViewport(true);
@@ -346,11 +388,11 @@ jobs:
 
             private void saveSettings() {
                 prefs.edit()
-                        .putInt("res", spRes.getSelectedItemPosition())
-                        .putInt("fps", spFps.getSelectedItemPosition())
-                        .putInt("bit", spBit.getSelectedItemPosition())
-                        .putInt("audio", spAudio.getSelectedItemPosition())
-                        .putInt("ori", spOri.getSelectedItemPosition())
+                        .putInt("res", segRes.sel)
+                        .putInt("fps", segFps.sel)
+                        .putInt("bit", segBit.sel)
+                        .putInt("audio", segAudio.sel)
+                        .putInt("ori", segOri.sel)
                         .apply();
             }
 
@@ -358,45 +400,6 @@ jobs:
             protected void onPause() {
                 saveSettings();
                 super.onPause();
-            }
-
-            private Spinner addSpinner(LinearLayout parent, String label, String[] items, int sel) {
-                TextView tv = new TextView(this);
-                tv.setText(label.toUpperCase());
-                tv.setTextColor(C_MUTED);
-                tv.setTextSize(11);
-                tv.setLetterSpacing(0.1f);
-                tv.setPadding(dp(2), dp(16), 0, dp(6));
-                parent.addView(tv);
-
-                Spinner sp = new Spinner(this);
-                ArrayAdapter<String> ad = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
-                    @Override
-                    public View getView(int pos, View cv, ViewGroup p) {
-                        TextView t = (TextView) super.getView(pos, cv, p);
-                        t.setTextColor(C_WHITE);
-                        t.setTextSize(16);
-                        t.setText(getItem(pos) + "   \u25BE");
-                        return t;
-                    }
-
-                    @Override
-                    public View getDropDownView(int pos, View cv, ViewGroup p) {
-                        TextView t = (TextView) super.getDropDownView(pos, cv, p);
-                        t.setTextColor(C_WHITE);
-                        t.setBackgroundColor(C_CARD);
-                        t.setPadding(dp(16), dp(12), dp(16), dp(12));
-                        return t;
-                    }
-                };
-                ad.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                sp.setAdapter(ad);
-                sp.setSelection(sel);
-                sp.setBackground(rounded(C_FIELD, 12, C_LINE));
-                sp.setPadding(dp(10), dp(6), dp(10), dp(6));
-                parent.addView(sp, new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
-                return sp;
             }
 
             private void onStartClicked() {
@@ -442,11 +445,11 @@ jobs:
                         i.setAction(RecorderService.ACTION_START);
                         i.putExtra("code", resultCode);
                         i.putExtra("data", data);
-                        i.putExtra("res", resValues[spRes.getSelectedItemPosition()]);
-                        i.putExtra("fps", fpsValues[spFps.getSelectedItemPosition()]);
-                        i.putExtra("mbps", bitValues[spBit.getSelectedItemPosition()]);
-                        i.putExtra("mic", spAudio.getSelectedItemPosition() == 1);
-                        i.putExtra("ori", spOri.getSelectedItemPosition());
+                        i.putExtra("res", resValues[segRes.sel]);
+                        i.putExtra("fps", fpsValues[segFps.sel]);
+                        i.putExtra("mbps", bitValues[segBit.sel]);
+                        i.putExtra("mic", segAudio.sel == 1);
+                        i.putExtra("ori", segOri.sel);
                         startForegroundService(i);
                         moveTaskToBack(true);
                     } else {
@@ -547,8 +550,8 @@ jobs:
                 boolean mic = intent.getBooleanExtra("mic", false);
                 int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
                         | (mic ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0);
-                summary = intent.getIntExtra("res", 720) + "p \u2022 " + intent.getIntExtra("fps", 30) + " fps \u2022 "
-                        + intent.getIntExtra("mbps", 8) + " Mbps" + (mic ? " \u2022 Mic" : "");
+                summary = intent.getIntExtra("res", 720) + "p | " + intent.getIntExtra("fps", 30) + " fps | "
+                        + intent.getIntExtra("mbps", 8) + " Mbps" + (mic ? " | Mic" : "");
                 paused = false;
                 starting = true;
                 accum = 0;
@@ -602,20 +605,20 @@ jobs:
                 boolean ph = paused;
                 Notification.Action toggle = new Notification.Action.Builder(
                         Icon.createWithResource(this, ph ? android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause),
-                        ph ? "\u25B6  Resume" : "\u23F8  Pause",
+                        ph ? "Resume" : "Pause",
                         action(ph ? ACTION_RESUME : ACTION_PAUSE, 10)).build();
                 Notification.Action stop = new Notification.Action.Builder(
                         Icon.createWithResource(this, android.R.drawable.ic_menu_save),
-                        "\u23F9  Stop & Save",
+                        "Stop & Save",
                         action(ACTION_STOP, 11)).build();
 
                 int color = starting ? 0xFFFFD600 : (ph ? 0xFFFFAB00 : 0xFFFF1744);
-                String title = starting ? "\u23F3 Starting in 4 sec - game kholo"
-                        : (ph ? "\u23F8 Paused" : "\u25CF Recording");
+                String title = starting ? "Starting in 4 sec - game kholo"
+                        : (ph ? "Paused" : "Recording");
                 String text = summary;
                 if (ph) {
                     long sec = accum / 1000;
-                    text = String.format(Locale.US, "Paused at %02d:%02d \u2022 ", sec / 60, sec % 60) + summary;
+                    text = String.format(Locale.US, "Paused at %02d:%02d | ", sec / 60, sec % 60) + summary;
                 }
 
                 Notification.Builder nb = new Notification.Builder(this, CHANNEL_ID)
@@ -674,11 +677,11 @@ jobs:
                     Intent view = new Intent(Intent.ACTION_VIEW)
                             .setDataAndType(uri, "video/mp4")
                             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    b.setContentTitle("\u2713 Recording saved")
-                            .setContentText("Movies/GameRec \u2022 tap to play")
+                    b.setContentTitle("Recording saved")
+                            .setContentText("Movies/GameRec | tap to play")
                             .setContentIntent(PendingIntent.getActivity(this, 20, view, PendingIntent.FLAG_IMMUTABLE));
                 } else {
-                    b.setContentTitle("\u2717 Recording save nahi hui");
+                    b.setContentTitle("Recording save nahi hui");
                 }
                 getSystemService(NotificationManager.class).notify(SAVED_ID, b.build());
             }
@@ -729,7 +732,8 @@ jobs:
             private final Context ctx;
             private final MediaProjection mp;
             private final Runnable onProjectionStopped;
-            private final int w, h, dpi, fps, bitrate;
+            private int w, h;
+            private final int dpi, fps, bitrate;
             private final boolean mic;
 
             private MediaCodec vEnc, aEnc;
@@ -773,6 +777,13 @@ jobs:
                 int s = align16(shortSide);
                 int l = align16((int) Math.round(shortSide * ratio));
                 boolean landscape = ori == 1 || (ori == 0 && dm.widthPixels > dm.heightPixels);
+                double area = (double) s * l;
+                double maxArea = 1920.0 * 1088.0;
+                if (area > maxArea) {
+                    double k = Math.sqrt(maxArea / area);
+                    s = align16((int) (s * k));
+                    l = align16((int) (l * k));
+                }
                 this.w = landscape ? l : s;
                 this.h = landscape ? s : l;
                 this.dpi = dm.densityDpi;
@@ -801,30 +812,19 @@ jobs:
                 muxer = new MediaMuxer(pfd.getFileDescriptor(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
 
                 // Video encoder
-                MediaFormat vf = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h);
-                vf.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-                vf.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
-                vf.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
-                vf.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
-                vf.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 500000L);
-                vf.setInteger(MediaFormat.KEY_PRIORITY, 0);
-                vf.setInteger(MediaFormat.KEY_OPERATING_RATE, fps);
                 vEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+                MediaCodecInfo.CodecCapabilities caps = null;
                 try {
-                    MediaCodecInfo.CodecCapabilities caps = vEnc.getCodecInfo()
-                            .getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC);
-                    if (caps.getEncoderCapabilities()
-                            .isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)) {
-                        vf.setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR);
-                    }
-                    for (MediaCodecInfo.CodecProfileLevel pl : caps.profileLevels) {
-                        if (pl.profile == MediaCodecInfo.CodecProfileLevel.AVCProfileHigh) {
-                            vf.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh);
-                            break;
-                        }
-                    }
+                    caps = vEnc.getCodecInfo().getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC);
+                    fitSize(caps.getVideoCapabilities());
                 } catch (Exception ignored) { }
-                vEnc.configure(vf, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+                try {
+                    vEnc.configure(videoFormat(caps, true), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+                } catch (Exception e) {
+                    try { vEnc.release(); } catch (Exception ignored) { }
+                    vEnc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+                    vEnc.configure(videoFormat(caps, false), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+                }
                 surface = vEnc.createInputSurface();
                 vEnc.start();
 
@@ -881,6 +881,52 @@ jobs:
                 aThread = new Thread(this::audioLoop, "rec-audio");
                 vThread.start();
                 aThread.start();
+            }
+
+            private void fitSize(MediaCodecInfo.VideoCapabilities vc) {
+                for (int i = 0; i < 12; i++) {
+                    boolean ok;
+                    try {
+                        ok = vc.isSizeSupported(w, h) && vc.areSizeAndRateSupported(w, h, fps);
+                    } catch (Exception e) {
+                        ok = true;
+                    }
+                    if (ok) return;
+                    w = Math.max(16, ((int) (w * 0.92)) / 16 * 16);
+                    h = Math.max(16, ((int) (h * 0.92)) / 16 * 16);
+                }
+            }
+
+            private MediaFormat videoFormat(MediaCodecInfo.CodecCapabilities caps, boolean full) {
+                int br = bitrate;
+                try {
+                    if (caps != null) br = caps.getVideoCapabilities().getBitrateRange().clamp(bitrate);
+                } catch (Exception ignored) { }
+                MediaFormat vf = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h);
+                vf.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+                vf.setInteger(MediaFormat.KEY_BIT_RATE, br);
+                vf.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
+                vf.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
+                if (full) {
+                    vf.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 500000L);
+                    vf.setInteger(MediaFormat.KEY_PRIORITY, 0);
+                    vf.setInteger(MediaFormat.KEY_OPERATING_RATE, fps);
+                    try {
+                        if (caps != null) {
+                            if (caps.getEncoderCapabilities()
+                                    .isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)) {
+                                vf.setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR);
+                            }
+                            for (MediaCodecInfo.CodecProfileLevel pl : caps.profileLevels) {
+                                if (pl.profile == MediaCodecInfo.CodecProfileLevel.AVCProfileHigh) {
+                                    vf.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh);
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) { }
+                }
+                return vf;
             }
 
             public synchronized void pause() {
