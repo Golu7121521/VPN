@@ -85,8 +85,8 @@ jobs:
                 applicationId "com.gamerec.lite"
                 minSdk 21
                 targetSdk 36
-                versionCode 9
-                versionName "2.3"
+                versionCode 10
+                versionName "2.4"
             }
 
             signingConfigs {
@@ -1467,7 +1467,8 @@ jobs:
             private int w, h;
             private final int dpi, bitrate, audioMode;
             private int fps;
-            private float refresh = 60f;
+            private float refreshMax = 60f;
+            private int encMaxFps = 0;
 
             private MediaCodec vEnc, aEnc;
             private Surface surface;
@@ -1509,7 +1510,14 @@ jobs:
                 Display d = ((DisplayManager) ctx.getSystemService(Context.DISPLAY_SERVICE))
                         .getDisplay(Display.DEFAULT_DISPLAY);
                 d.getRealMetrics(dm);
-                try { refresh = d.getRefreshRate(); } catch (Exception ignored) { }
+                try {
+                    refreshMax = d.getRefreshRate();
+                    if (Build.VERSION.SDK_INT >= 23) {
+                        for (Display.Mode m : d.getSupportedModes()) {
+                            refreshMax = Math.max(refreshMax, m.getRefreshRate());
+                        }
+                    }
+                } catch (Exception ignored) { }
                 int nativeShort = Math.min(dm.widthPixels, dm.heightPixels);
                 int target = Math.min(shortSide, nativeShort);
                 double ratio = (double) Math.max(dm.widthPixels, dm.heightPixels) / nativeShort;
@@ -1618,6 +1626,7 @@ jobs:
                         if (vc.isSizeSupported(w, h)) {
                             Range<Double> r = vc.getSupportedFrameRatesFor(w, h);
                             int maxFps = (int) Math.floor(r.getUpper());
+                            if (maxFps >= 1) encMaxFps = maxFps;
                             if (maxFps >= 1 && fps > maxFps) fps = maxFps;
                             return;
                         }
@@ -1637,14 +1646,29 @@ jobs:
                 MediaFormat vf = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h);
                 vf.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
                 vf.setInteger(MediaFormat.KEY_BIT_RATE, br);
-                vf.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
+                // Rate the encoder should expect. If the screen runs faster than the chosen fps and the
+                // fps does not divide the refresh rate evenly, frames are NOT dropped (dropping unevenly
+                // makes fast scrolling look choppy), so the encoder is told the real incoming rate.
+                int hint = fps;
+                boolean limit = false;
+                if (full && refreshMax > 0 && fps < refreshMax * 0.98f) {
+                    float ratio = refreshMax / fps;
+                    int n = Math.round(ratio);
+                    if (n >= 2 && Math.abs(ratio - n) <= 0.03f * n) {
+                        limit = true;
+                    } else {
+                        hint = Math.round(refreshMax);
+                    }
+                }
+                if (encMaxFps > 0 && hint > encMaxFps) hint = encMaxFps;
+                vf.setInteger(MediaFormat.KEY_FRAME_RATE, hint);
                 vf.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
                 if (full) {
                     vf.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 500000L);
                     vf.setInteger(MediaFormat.KEY_PRIORITY, 0);
-                    vf.setInteger(MediaFormat.KEY_OPERATING_RATE, fps);
-                    if (fps < 0.75f * refresh) {
-                        vf.setInteger("max-fps-to-encoder", fps);
+                    vf.setInteger(MediaFormat.KEY_OPERATING_RATE, hint);
+                    if (limit) {
+                        vf.setInteger("max-fps-to-encoder", Math.max(fps, Math.round(fps * 1.08f)));
                     }
                     try {
                         if (caps != null) {
