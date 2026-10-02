@@ -35,7 +35,7 @@ jobs:
           }
           EOF
 
-          cathswjwjwhwvg > app/build.gradle.kts <<'EOF'
+          cat > app/build.gradle.kts <<'EOF'
           plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
           android {
               namespace = "com.gitactionbuild"
@@ -240,7 +240,6 @@ jobs:
               var onBack: (() -> Unit)? = null
               var pickRepo: File? = null; var pickDir: File? = null
               var live = 0
-              val manual = HashMap<Long, Boolean>()
               val logMap = HashMap<Long, String>()
 
               val KW = Regex("\\b(class|fun|val|var|def|function|return|if|else|for|while|import|package|public|private|static|void|int|new|true|false|null|const|let|async|await|try|catch|from|in|is|when|override|this|echo|run)\\b")
@@ -571,7 +570,7 @@ jobs:
                   top.addView(btn("Save") { save() })
                   top.addView(btn("Undo") { flush(); if (undo.isNotEmpty()) { redo.add(last); put(undo.removeAt(undo.size - 1)) } })
                   top.addView(btn("Redo") { flush(); if (redo.isNotEmpty()) { undo.add(last); put(redo.removeAt(redo.size - 1)) } })
-                  top.addView(btn("Push") { save(); pushOne(repo, f) }) // No delay loading handled inside pushOne
+                  top.addView(btn("Push") { save(); pushOne(repo, f) })
                   root.addView(top)
                   root.addView(ScrollView(this).apply { isFillViewport = true; addView(cv, FrameLayout.LayoutParams(-1, -2)) }, lp(-1, 0, 1f))
               }
@@ -668,33 +667,6 @@ jobs:
               }
 
               // ---------- GitHub Web Actions Monitor UI ----------
-              fun statIcon(s: String, c: String): String = when {
-                  s == "completed" -> when (c) {
-                      "success" -> "✓"
-                      "skipped" -> "⊘"
-                      "cancelled" -> "⊘"
-                      else -> "✗"
-                  }
-                  s == "in_progress" -> "↻"
-                  else -> "○"
-              }
-
-              fun statColor(s: String, c: String): Int = when {
-                  s == "completed" -> when (c) {
-                      "success" -> Color.parseColor("#3FB950") // Green check
-                      "skipped", "cancelled" -> Color.parseColor("#8B949E")
-                      else -> Color.parseColor("#F85149") // Red cross
-                  }
-                  s == "in_progress" -> Color.parseColor("#D2A8FF") // Purple running
-                  else -> Color.parseColor("#8B949E") // Gray queued
-              }
-
-              fun isOpen(j: JSONObject): Boolean {
-                  val id = j.getLong("id")
-                  if (manual.containsKey(id)) return manual[id]!!
-                  return j.getString("status") == "in_progress" || (j.getString("status") == "completed" && j.optString("conclusion") == "failure")
-              }
-
               fun tail(t: String): String {
                   val ansi = Regex("\u001B\\[[0-9;]*m"); val ts = Regex("^\\uFEFF?\\d{4}-\\d\\d-\\d\\dT[\\d:.]+Z ")
                   return t.lines().map { ts.replace(ansi.replace(it, ""), "") }.takeLast(80).joinToString("\n")
@@ -703,79 +675,98 @@ jobs:
               fun draw(l: LinearLayout, r: JSONObject, js: JSONArray) {
                   val sv = l.parent as? ScrollView; val y = sv?.scrollY ?: 0
                   l.removeAllViews()
-                  val s = r.getString("status"); val c = r.optString("conclusion")
                   
-                  // Main Dark Container (GitHub UI Match)
+                  // Main Rounded Border Container
                   val container = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
-                      background = box(Color.parseColor("#0D1117"), Color.parseColor("#30363D"), 8)
+                      background = box(col(R.color.card), col(R.color.stroke), 12)
                       layoutParams = lp(-1, -2).apply { setMargins(dp(2), dp(10), dp(2), dp(10)) }
+                      clipToOutline = true
                   }
 
-                  // Header part
-                  val head = LinearLayout(this).apply {
-                      orientation = LinearLayout.VERTICAL
-                      setPadding(dp(16), dp(16), dp(16), dp(16))
-                      setBackgroundColor(Color.parseColor("#161B22"))
-                  }
-                  head.addView(tv(r.optString("name", "Workflow run"), 16, true).apply { setTextColor(Color.WHITE) })
-                  if (s != "completed") {
-                      head.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { 
-                          isIndeterminate = true; progressDrawable.setColorFilter(Color.parseColor("#3B82F6"), android.graphics.PorterDuff.Mode.SRC_IN)
-                      }, lp(-1, dp(4)).apply { topMargin = dp(8) })
-                  }
-                  container.addView(head)
-                  container.addView(View(this).apply { setBackgroundColor(Color.parseColor("#30363D")); layoutParams = lp(-1, dp(1)) })
-
-                  // Jobs
+                  // Loop Jobs and internal steps dynamically
                   for (k in 0 until js.length()) {
-                      val j = js.getJSONObject(k); val id = j.getLong("id"); val open = isOpen(j)
+                      val j = js.getJSONObject(k)
+                      val id = j.getLong("id")
+                      val steps = j.optJSONArray("steps")
                       
-                      val jobHeader = LinearLayout(this).apply {
-                          gravity = Gravity.CENTER_VERTICAL
-                          setPadding(dp(16), dp(14), dp(16), dp(14))
-                          setBackgroundColor(Color.parseColor(if(open) "#1F242C" else "#0D1117"))
-                          setOnClickListener { manual[id] = !open; draw(l, r, js) }
-                      }
-                      
-                      val arrowTxt = if (open) "▼" else "▶"
-                      val stIcon = statIcon(j.getString("status"), j.optString("conclusion"))
-                      val stCol = statColor(j.getString("status"), j.optString("conclusion"))
-                      
-                      jobHeader.addView(tv(arrowTxt, 11).apply { setTextColor(Color.parseColor("#8B949E")); setPadding(0, 0, dp(12), 0) })
-                      jobHeader.addView(tv(stIcon, 15, true).apply { setTextColor(stCol); setPadding(0, 0, dp(10), 0) })
-                      jobHeader.addView(tv(j.getString("name"), 14, true).apply { setTextColor(Color.parseColor("#E6EDF3")); setSingleLine() }, lp(0, -2, 1f))
-                      
-                      container.addView(jobHeader)
-                      container.addView(View(this).apply { setBackgroundColor(Color.parseColor("#30363D")); layoutParams = lp(-1, dp(1)) })
-
-                      // Logs & Steps inside Job
-                      if (open) {
-                          val stepsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#0D1117")) }
-                          
-                          val steps = j.optJSONArray("steps")
-                          if (steps != null) for (q in 0 until steps.length()) {
+                      if (steps != null) {
+                          for (q in 0 until steps.length()) {
                               val st = steps.getJSONObject(q)
-                              val stRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(44), dp(10), dp(16), dp(10)) }
-                              stRow.addView(tv(statIcon(st.getString("status"), st.optString("conclusion")), 14, true).apply { setTextColor(statColor(st.getString("status"), st.optString("conclusion"))); setPadding(0, 0, dp(10), 0) })
-                              stRow.addView(tv(st.getString("name"), 13).apply { setTextColor(Color.parseColor("#E6EDF3")); setSingleLine() })
-                              stepsBox.addView(stRow)
+                              val stStatus = st.getString("status")
+                              val stConcl = st.optString("conclusion")
+                              
+                              val isRunning = stStatus == "in_progress"
+                              val isFailed = stConcl == "failure"
+                              val isCompleted = stStatus == "completed"
+                              
+                              val stepRow = LinearLayout(this).apply {
+                                  gravity = Gravity.CENTER_VERTICAL
+                                  setPadding(dp(16), dp(14), dp(16), dp(14))
+                              }
+                              
+                              // Background color logic based on status
+                              if (isRunning || isFailed) { stepRow.setBackgroundColor(col(R.color.bg)) }
+                              
+                              // Visual status icons matching image
+                              if (isCompleted) {
+                                  val icon = if (stConcl == "success" || stConcl == "skipped") "✓" else "✗"
+                                  val colId = if (stConcl == "success" || stConcl == "skipped") R.color.muted else R.color.bad
+                                  stepRow.addView(tv(icon, 15, true, colId).apply { setPadding(0, 0, dp(12), 0) })
+                              } else if (isRunning) {
+                                  stepRow.addView(ProgressBar(this).apply { 
+                                      isIndeterminate = true
+                                      layoutParams = lp(dp(16), dp(16)).apply { rightMargin = dp(12) }
+                                  })
+                              } else {
+                                  stepRow.addView(tv("○", 15, true, R.color.muted).apply { setPadding(0, 0, dp(12), 0) })
+                              }
+                              
+                              // Step name
+                              val nameColor = if (isRunning || isFailed) R.color.fg else R.color.muted
+                              stepRow.addView(tv(st.getString("name"), 14, isRunning, nameColor).apply { setSingleLine() }, lp(0, -2, 1f))
+                              
+                              // Step Completion Status texts
+                              if (isCompleted) {
+                                  val txt = when(stConcl) { "success" -> "Completed"; "failure" -> "Failed"; "skipped" -> "Skipped"; else -> stConcl }
+                                  stepRow.addView(tv(txt, 12, false, R.color.muted))
+                              }
+
+                              container.addView(stepRow)
+                              
+                              // Bottom separator line
+                              if (q < steps.length() - 1 || isRunning || isFailed) {
+                                  container.addView(View(this).apply { setBackgroundColor(col(R.color.stroke)); layoutParams = lp(-1, dp(1)) })
+                              }
+                              
+                              // Live Logs below currently running step (Auto-hiding)
+                              if (isRunning || isFailed) {
+                                  val lg = logMap[id]
+                                  val logTxt = if (lg.isNullOrEmpty()) "Fetching logs..." else lg
+                                  
+                                  container.addView(tv(logTxt, 11).apply {
+                                      typeface = Typeface.MONOSPACE
+                                      setTextColor(col(R.color.fg))
+                                      setBackgroundColor(col(R.color.bg))
+                                      setPadding(dp(16), dp(8), dp(16), dp(16))
+                                      setHorizontallyScrolling(true)
+                                  })
+                                  
+                                  // Separator for the next item after log view
+                                  if (q < steps.length() - 1) {
+                                      container.addView(View(this).apply { setBackgroundColor(col(R.color.stroke)); layoutParams = lp(-1, dp(1)) })
+                                  }
+                              }
                           }
-                          
-                          val lg = logMap[id]
-                          val logTxt = if (j.getString("status") == "queued") "Waiting for runner..." else if (lg.isNullOrEmpty()) "Fetching logs..." else lg
-                          
-                          // Dark Terminal view for logs
-                          stepsBox.addView(tv(logTxt, 11).apply {
-                              typeface = Typeface.MONOSPACE
-                              setTextColor(Color.parseColor("#E6EDF3"))
-                              setBackgroundColor(Color.parseColor("#010409"))
-                              setPadding(dp(16), dp(16), dp(16), dp(16))
-                              setHorizontallyScrolling(true)
-                          }, lp(-1, -2))
-                          
-                          container.addView(stepsBox)
-                          container.addView(View(this).apply { setBackgroundColor(Color.parseColor("#30363D")); layoutParams = lp(-1, dp(1)) })
+                      } else {
+                          // Job is queued, steps array is missing
+                          val stepRow = LinearLayout(this).apply {
+                              gravity = Gravity.CENTER_VERTICAL
+                              setPadding(dp(16), dp(14), dp(16), dp(14))
+                          }
+                          stepRow.addView(tv("○", 15, true, R.color.muted).apply { setPadding(0, 0, dp(12), 0) })
+                          stepRow.addView(tv(j.getString("name"), 14, false, R.color.muted).apply { setSingleLine() }, lp(0, -2, 1f))
+                          container.addView(stepRow)
                       }
                   }
                   
@@ -784,8 +775,9 @@ jobs:
               }
 
               fun watch(full: String, sha: String, repo: File) {
-                  val my = ++live; manual.clear(); logMap.clear()
-                  val l = page("Build", btn("Close") { live++; browse(repo, repo) })
+                  val my = ++live; logMap.clear()
+                  // Main Build Process Page
+                  val l = page("Build Process", btn("Close") { live++; browse(repo, repo) })
                   onBack = { live++; browse(repo, repo) }
                   
                   val w = card(); w.addView(ProgressBar(this).apply { isIndeterminate = true; layoutParams = lp(dp(16), dp(16)).apply { rightMargin = dp(10) } })
@@ -799,12 +791,15 @@ jobs:
                           if (rs.length() == 0) continue
                           val r = rs.getJSONObject(0)
                           val js = JSONObject(api("GET", r.getString("url") + "/jobs")).getJSONArray("jobs")
+                          
                           for (k in 0 until js.length()) {
                               val j = js.getJSONObject(k)
-                              if (isOpen(j) && j.getString("status") != "queued") {
+                              // Only fetch logs if step is in_progress or failed
+                              if ((j.getString("status") == "in_progress" || (j.getString("status") == "completed" && j.optString("conclusion") == "failure")) && j.getString("status") != "queued") {
                                   try { logMap[j.getLong("id")] = tail(String(http("GET", "/repos/$full/actions/jobs/" + j.getLong("id") + "/logs").inputStream.readBytes())) } catch (e: Exception) { }
                               }
                           }
+                          
                           val done = r.getString("status") == "completed"
                           ui { if (my == live) draw(l, r, js) }
                           if (done) {
