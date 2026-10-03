@@ -148,15 +148,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final songs = ref.watch(songsProvider).valueOrNull ?? [];
     final hist = ref.watch(playerProvider.select((s) => s.history));
     final ctl = ref.read(playerProvider.notifier);
     final groups = <(String, List<Song>)>[
-      if (!_cleared && songs.isNotEmpty) ...[
-        if (hist.isNotEmpty) ('Today', hist),
-        ('Yesterday', songs.skip(10).take(5).toList()),
-        ('Earlier', songs.skip(15).take(5).toList()),
-      ],
+      if (!_cleared && hist.isNotEmpty) ('Today', hist),
     ];
     return Scaffold(
       appBar: AppBar(

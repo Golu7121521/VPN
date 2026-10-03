@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
 import '../core/widgets.dart';
+import '../data/mock_data.dart';
 import '../data/models.dart';
 import '../state/providers.dart';
 
@@ -43,61 +44,46 @@ class _PlayShuffleRow extends StatelessWidget {
       );
 }
 
-/// Playlist, Album and Liked Songs share one screen.
+/// Featured playlists (filled by a live search), user playlists and Liked Songs.
 class CollectionScreen extends ConsumerWidget {
-  const CollectionScreen({super.key, required this.kind, required this.id});
-  final String kind, id;
+  const CollectionScreen({super.key, required this.id});
+  final String id;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final songsV = ref.watch(songsProvider);
-    final plV = ref.watch(playlistsProvider);
-    final alV = ref.watch(albumsProvider);
     final userPl = ref.watch(userPlaylistsProvider);
     final likes = ref.watch(likesProvider);
     final ctl = ref.read(playerProvider.notifier);
 
-    if (songsV.hasError || plV.hasError || alV.hasError) {
-      return Scaffold(appBar: AppBar(), body: ErrorState(onRetry: () => ref.invalidate(songsProvider)));
-    }
-    if (!songsV.hasValue || !plV.hasValue || !alV.hasValue) {
-      return Scaffold(appBar: AppBar(), body: const LoadingState());
-    }
-    final songs = songsV.requireValue;
-
     String title = '', sub = '';
     String? cover;
-    var list = <Song>[];
     var isUser = false;
+    AsyncValue<List<Song>> songsV = const AsyncData([]);
 
-    if (kind == 'album') {
-      final m = alV.requireValue.where((a) => a.id == id);
-      if (m.isNotEmpty) {
-        title = m.first.title;
-        sub = '${m.first.artistName} • ${m.first.year}';
-        cover = m.first.artwork;
-        list = songs.where((s) => s.albumId == id).toList();
-      }
-    } else if (id == 'liked') {
+    if (id == 'liked') {
       title = 'Liked Songs';
-      list = songs.where((s) => likes.contains(s.id)).toList();
-      sub = '${list.length} songs';
+      sub = '${likes.length} songs';
+      songsV = AsyncData(likes.songs);
     } else {
-      final m = [...userPl, ...plV.requireValue].where((p) => p.id == id);
+      final m = [...userPl, ...featuredPlaylists].where((p) => p.id == id);
       if (m.isNotEmpty) {
         final p = m.first;
         isUser = userPl.any((u) => u.id == id);
         title = p.name;
         cover = p.cover;
-        list = [for (final sid in p.songIds) ...songs.where((s) => s.id == sid)];
-        sub = '${p.description} • ${list.length} songs';
+        sub = p.description;
+        songsV = p.query != null ? ref.watch(songsQueryProvider(p.query!)) : AsyncData(p.songs);
       }
     }
     if (title.isEmpty) {
-      return Scaffold(appBar: AppBar(), body: const EmptyState(icon: Icons.error_outline, title: 'Not found', message: 'This item no longer exists.'));
+      return Scaffold(
+        appBar: AppBar(),
+        body: const EmptyState(icon: Icons.error_outline, title: 'Not found', message: 'This item no longer exists.'),
+      );
     }
 
     final side = math.min(MediaQuery.sizeOf(context).width * .6, 300.0);
+    final list = songsV.valueOrNull ?? <Song>[];
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -140,60 +126,55 @@ class CollectionScreen extends ConsumerWidget {
           onPlay: () => ctl.playQueue(list, 0),
           onShuffle: () => ctl.playQueue([...list]..shuffle(), 0),
         ),
-        if (list.isEmpty)
-          const SizedBox(
-            height: 220,
-            child: EmptyState(
-              icon: Icons.music_off_rounded,
-              title: 'No songs yet',
-              message: 'Use "Add to playlist" from any song menu.',
-            ),
-          )
-        else
-          for (var i = 0; i < list.length; i++) SongTile(song: list[i], onTap: () => ctl.playQueue(list, i)),
+        songsV.when(
+          loading: () => const SizedBox(height: 200, child: LoadingState()),
+          error: (_, __) => SizedBox(
+            height: 260,
+            child: ErrorState(onRetry: () => ref.invalidate(songsQueryProvider)),
+          ),
+          data: (l) => l.isEmpty
+              ? const SizedBox(
+                  height: 220,
+                  child: EmptyState(
+                    icon: Icons.music_off_rounded,
+                    title: 'No songs yet',
+                    message: 'Use "Add to playlist" from any song menu.',
+                  ),
+                )
+              : Column(children: [
+                  for (var i = 0; i < l.length; i++) SongTile(song: l[i], onTap: () => ctl.playQueue(l, i)),
+                ]),
+        ),
       ]),
     );
   }
 }
 
-class ArtistScreen extends ConsumerStatefulWidget {
-  const ArtistScreen({super.key, required this.id});
-  final String id;
-  @override
-  ConsumerState<ArtistScreen> createState() => _ArtistScreenState();
-}
-
-class _ArtistScreenState extends ConsumerState<ArtistScreen> {
-  bool _following = false;
+class ArtistScreen extends ConsumerWidget {
+  const ArtistScreen({super.key, required this.name});
+  final String name;
 
   @override
-  Widget build(BuildContext context) {
-    final artistsV = ref.watch(artistsProvider);
-    final songsV = ref.watch(songsProvider);
-    final albumsV = ref.watch(albumsProvider);
-    if (artistsV.hasError || songsV.hasError || albumsV.hasError) {
-      return Scaffold(appBar: AppBar(), body: ErrorState(onRetry: () => ref.invalidate(artistsProvider)));
-    }
-    if (!artistsV.hasValue || !songsV.hasValue || !albumsV.hasValue) {
-      return Scaffold(appBar: AppBar(), body: const LoadingState());
-    }
-    final matches = artistsV.requireValue.where((a) => a.id == widget.id);
-    if (matches.isEmpty) {
-      return Scaffold(appBar: AppBar(), body: const EmptyState(icon: Icons.person_off_rounded, title: 'Artist not found', message: ''));
-    }
-    final artist = matches.first;
-    final songs = songsV.requireValue.where((s) => s.artistId == artist.id).toList();
-    final albums = albumsV.requireValue.where((a) => a.artistId == artist.id).toList();
-    final related = artistsV.requireValue.where((a) => a.id != artist.id).take(6).toList();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final songsV = ref.watch(songsQueryProvider(name));
+    final others = ref.watch(artistsProvider).valueOrNull ?? [];
     final ctl = ref.read(playerProvider.notifier);
     final w = (MediaQuery.sizeOf(context).width * .38).clamp(120.0, 180.0).toDouble();
+
+    if (songsV.hasError) {
+      return Scaffold(appBar: AppBar(), body: ErrorState(onRetry: () => ref.invalidate(songsQueryProvider(name))));
+    }
+    if (!songsV.hasValue) return Scaffold(appBar: AppBar(), body: const LoadingState());
+    final songs = songsV.requireValue;
+    final image = songs.isEmpty ? '' : songs.first.artwork;
+    final related = others.where((a) => a.name != name).take(8).toList();
 
     return Scaffold(
       body: ListView(padding: EdgeInsets.zero, children: [
         Stack(children: [
-          SizedBox(height: 320, width: double.infinity, child: Artwork(artist.image, radius: 0)),
+          SizedBox(height: 300, width: double.infinity, child: Artwork(image, radius: 0)),
           Container(
-            height: 320,
+            height: 300,
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 colors: [Colors.transparent, AppColors.background],
@@ -207,18 +188,8 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen> {
             left: 16,
             right: 16,
             bottom: 8,
-            child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(artist.name, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800)),
-                  Text(artist.listeners, style: const TextStyle(color: AppColors.textSecondary)),
-                ]),
-              ),
-              OutlinedButton(
-                onPressed: () => setState(() => _following = !_following),
-                child: Text(_following ? 'Following' : 'Follow'),
-              ),
-            ]),
+            child: Text(name, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800)),
           ),
         ]),
         _PlayShuffleRow(
@@ -227,33 +198,21 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen> {
         ),
         const SectionHeader('Popular'),
         for (var i = 0; i < songs.length; i++) SongTile(song: songs[i], onTap: () => ctl.playQueue(songs, i)),
-        if (albums.isNotEmpty) ...[
-          const SectionHeader('Albums'),
+        if (related.isNotEmpty) ...[
+          const SectionHeader('Related Artists'),
           HList(
-            height: w + 58,
-            count: albums.length,
+            height: w * .7 + 50,
+            count: related.length,
             itemBuilder: (_, i) => PosterCard(
-              imageUrl: albums[i].artwork,
-              title: albums[i].title,
-              subtitle: '${albums[i].year}',
-              width: w,
-              onTap: () => context.push('/album/${albums[i].id}'),
+              imageUrl: related[i].image,
+              title: related[i].name,
+              subtitle: 'Artist',
+              width: w * .7,
+              circle: true,
+              onTap: () => context.push('/artist/${Uri.encodeComponent(related[i].id)}'),
             ),
           ),
         ],
-        const SectionHeader('Related Artists'),
-        HList(
-          height: w * .7 + 50,
-          count: related.length,
-          itemBuilder: (_, i) => PosterCard(
-            imageUrl: related[i].image,
-            title: related[i].name,
-            subtitle: 'Artist',
-            width: w * .7,
-            circle: true,
-            onTap: () => context.push('/artist/${related[i].id}'),
-          ),
-        ),
         const SizedBox(height: 24),
       ]),
     );

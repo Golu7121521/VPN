@@ -2,16 +2,27 @@ class Song {
   const Song({
     required this.id,
     required this.title,
-    required this.artistId,
     required this.artistName,
-    required this.albumId,
-    required this.albumName,
     required this.artwork,
-    required this.audioUrl,
-    required this.duration,
+    this.audioUrl = '',
+    this.duration = Duration.zero,
   });
-  final String id, title, artistId, artistName, albumId, albumName, artwork, audioUrl;
+
+  /// For real songs the id is the YouTube watch URL; the stream URL is resolved on demand.
+  final String id, title, artistName, artwork, audioUrl;
   final Duration duration;
+
+  Map<String, Object> toJson() =>
+      {'id': id, 't': title, 'a': artistName, 'i': artwork, 'u': audioUrl, 'd': duration.inSeconds};
+
+  factory Song.fromJson(Map<String, dynamic> j) => Song(
+        id: j['id'] as String,
+        title: j['t'] as String,
+        artistName: j['a'] as String,
+        artwork: j['i'] as String,
+        audioUrl: j['u'] as String,
+        duration: Duration(seconds: j['d'] as int),
+      );
 
   @override
   bool operator ==(Object other) => other is Song && other.id == id;
@@ -24,36 +35,28 @@ class Artist {
   final String id, name, image, listeners;
 }
 
-class Album {
-  const Album({
-    required this.id,
-    required this.title,
-    required this.artistId,
-    required this.artistName,
-    required this.artwork,
-    required this.year,
-  });
-  final String id, title, artistId, artistName, artwork;
-  final int year;
-}
-
 class Playlist {
   const Playlist({
     required this.id,
     required this.name,
     required this.description,
     required this.cover,
-    required this.songIds,
+    this.songs = const [],
+    this.query,
   });
   final String id, name, description, cover;
-  final List<String> songIds;
+  final List<Song> songs;
 
-  Playlist copyWith({List<String>? songIds}) => Playlist(
+  /// Featured playlists are filled by searching this query.
+  final String? query;
+
+  Playlist copyWith({List<Song>? songs}) => Playlist(
         id: id,
         name: name,
         description: description,
         cover: cover,
-        songIds: songIds ?? this.songIds,
+        songs: songs ?? this.songs,
+        query: query,
       );
 }
 
@@ -64,14 +67,8 @@ class LyricLine {
 }
 
 class SearchResults {
-  const SearchResults({
-    this.songs = const [],
-    this.artists = const [],
-    this.albums = const [],
-    this.playlists = const [],
-  });
+  const SearchResults({this.songs = const [], this.artists = const [], this.playlists = const []});
   final List<Song> songs;
   final List<Artist> artists;
-  final List<Album> albums;
   final List<Playlist> playlists;
 }

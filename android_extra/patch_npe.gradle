@@ -1,0 +1,83 @@
+// Applied from android/app/build.gradle.kts. Adds NewPipeExtractor and patches its jars
+// so URLEncoder/URLDecoder (String, Charset) calls work on Android 10 and older.
+repositories {
+  maven { url 'https://jitpack.io' }
+}
+
+android {
+  compileOptions { coreLibraryDesugaringEnabled true }
+  packaging {
+    resources.excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/INDEX.LIST']
+  }
+}
+
+configurations {
+  npe {
+    canBeConsumed = false
+    canBeResolved = true
+    attributes {
+      attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage, Usage.JAVA_RUNTIME))
+      attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category, Category.LIBRARY))
+    }
+  }
+}
+
+def patchedDir = layout.buildDirectory.dir('patched-libs').get().asFile
+tasks.register('patchNpe') {
+  inputs.files(configurations.npe)
+  outputs.dir(patchedDir)
+  doLast {
+    patchedDir.deleteDir(); patchedDir.mkdirs()
+    def mk = { String n ->
+      byte[] nb = n.getBytes('ISO-8859-1')
+      byte[] b = new byte[nb.length + 2]
+      b[0] = 0; b[1] = (byte) nb.length
+      System.arraycopy(nb, 0, b, 2, nb.length)
+      return b
+    }
+    def swap = { byte[] data, byte[] from, byte[] to ->
+      def out = new ByteArrayOutputStream(data.length + 64)
+      int i = 0
+      while (i < data.length) {
+        boolean m = i + from.length <= data.length
+        if (m) {
+          for (int k = 0; k < from.length; k++) {
+            if (data[i + k] != from[k]) { m = false; break }
+          }
+        }
+        if (m) { out.write(to, 0, to.length); i += from.length }
+        else { out.write(data[i]); i++ }
+      }
+      return out.toByteArray()
+    }
+    byte[] to = mk('com/example/musify/UrlCompat')
+    def froms = [mk('java/net/URLEncoder'), mk('java/net/URLDecoder')]
+    configurations.npe.files.each { File f ->
+      if (!f.name.endsWith('.jar')) return
+      def zin = new java.util.zip.ZipFile(f)
+      def zout = new java.util.zip.ZipOutputStream(new FileOutputStream(new File(patchedDir, f.name)))
+      def seen = new HashSet<String>()
+      Collections.list(zin.entries()).each { e ->
+        if (!seen.add(e.name)) return
+        if (e.name.startsWith('META-INF/') && (e.name.endsWith('.SF') || e.name.endsWith('.RSA') || e.name.endsWith('.DSA'))) return
+        byte[] data = zin.getInputStream(e).bytes
+        if (e.name.endsWith('.class') && new String(data, 'ISO-8859-1').contains('java/net/URL')) {
+          froms.each { data = swap(data, it, to) }
+        }
+        zout.putNextEntry(new java.util.zip.ZipEntry(e.name))
+        zout.write(data)
+        zout.closeEntry()
+      }
+      zout.close(); zin.close()
+    }
+  }
+}
+def patchedTree = fileTree(dir: patchedDir, include: '*.jar')
+patchedTree.builtBy('patchNpe')
+
+dependencies {
+  npe 'com.github.TeamNewPipe:NewPipeExtractor:v0.26.4'
+  implementation patchedTree
+  implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+  coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+}

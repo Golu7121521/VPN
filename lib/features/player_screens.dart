@@ -96,7 +96,7 @@ class NowPlayingScreen extends ConsumerWidget {
                 IconButton(
                   tooltip: liked ? 'Remove from liked songs' : 'Like song',
                   iconSize: 30,
-                  onPressed: () => ref.read(likesProvider.notifier).toggle(song.id),
+                  onPressed: () => ref.read(likesProvider.notifier).toggle(song),
                   icon: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 250),
                     transitionBuilder: (c, a) => ScaleTransition(scale: a, child: c),

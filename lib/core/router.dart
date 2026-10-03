@@ -28,15 +28,8 @@ final appRouter = GoRouter(
         GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
         GoRoute(path: '/history', builder: (_, __) => const HistoryScreen()),
         GoRoute(path: '/downloads', builder: (_, __) => const DownloadsScreen()),
-        GoRoute(
-          path: '/playlist/:id',
-          builder: (_, s) => CollectionScreen(kind: 'playlist', id: s.pathParameters['id']!),
-        ),
-        GoRoute(
-          path: '/album/:id',
-          builder: (_, s) => CollectionScreen(kind: 'album', id: s.pathParameters['id']!),
-        ),
-        GoRoute(path: '/artist/:id', builder: (_, s) => ArtistScreen(id: s.pathParameters['id']!)),
+        GoRoute(path: '/playlist/:id', builder: (_, s) => CollectionScreen(id: s.pathParameters['id']!)),
+        GoRoute(path: '/artist/:name', builder: (_, s) => ArtistScreen(name: s.pathParameters['name']!)),
       ],
     ),
     GoRoute(

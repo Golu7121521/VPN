@@ -380,7 +380,7 @@ void showSongSheet(BuildContext context, Song song) {
             leading: Icon(liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                 color: liked ? Colors.redAccent : null),
             title: Text(liked ? 'Remove from Liked Songs' : 'Add to Liked Songs'),
-            onTap: () { ref.read(likesProvider.notifier).toggle(song.id); Navigator.pop(ctx); },
+            onTap: () { ref.read(likesProvider.notifier).toggle(song); Navigator.pop(ctx); },
           ),
           ListTile(
             leading: const Icon(Icons.playlist_add_rounded),
@@ -390,7 +390,7 @@ void showSongSheet(BuildContext context, Song song) {
           ListTile(
             leading: const Icon(Icons.person_rounded),
             title: const Text('Go to artist'),
-            onTap: () { Navigator.pop(ctx); context.push('/artist/${song.artistId}'); },
+            onTap: () { Navigator.pop(ctx); context.push('/artist/${Uri.encodeComponent(song.artistName)}'); },
           ),
         ]),
       );
@@ -416,7 +416,7 @@ void _pickPlaylist(BuildContext context, Song song) {
               leading: Artwork(p.cover, size: 44, radius: 8),
               title: Text(p.name),
               onTap: () {
-                ref.read(userPlaylistsProvider.notifier).addSong(p.id, song.id);
+                ref.read(userPlaylistsProvider.notifier).addSong(p.id, song);
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added to ${p.name}')));
               },

@@ -2,80 +2,28 @@ import 'package:flutter/material.dart';
 
 import 'models.dart';
 
-/// Artwork placeholder images (deterministic per seed). Replace with API data later.
+/// Decorative placeholder images (deterministic per seed).
 String img(String seed, [int size = 500]) => 'https://picsum.photos/seed/$seed/$size';
 
-const _artistNames = [
-  'Aarav Sen', 'Luna Ray', 'Kabir Rao', 'Mira Vale', 'Neon Harbor',
-  'Zoya Khan', 'Midnight Oak', 'Riya Dutta', 'Echo Park', 'Vihaan',
-];
-const _albumTitles = [
-  'Golden Hour', 'Neon Nights', 'Monsoon', 'Paper Planes', 'Skyline',
-  'Wildflower', 'Afterglow', 'Velvet Roads', 'Static Hearts', 'Daybreak',
-];
-const _songTitles = [
-  'Midnight Drive', 'Neon Skyline', 'Chai & Rain', 'Paper Planes', 'Faded Streetlights',
-  'Wildflower', 'Afterglow', 'Slow Burn', 'Echoes', 'First Light',
-  'Golden Hour', 'City Lullaby', 'Summer Static', 'Dancing Alone', 'Blue Hours',
-  'Ocean Eyes', 'Runaway', 'Coffee Stains', 'Lost in You', 'Home Again',
+const _featured = [
+  ('Daily Mix', 'Your everyday favorites', 'top hindi songs'),
+  ('Chill Vibes', 'A playlist by Musify', 'chill songs'),
+  ('Workout Mix', 'Energy for your session', 'workout songs'),
+  ('Party Hits', 'Turn it up', 'party songs'),
+  ('Romantic', 'Songs for the heart', 'romantic hindi songs'),
+  ('Fresh Release', "This week's new music", 'new songs 2026'),
+  ('Discover Weekly', 'Something new for you', 'indie songs'),
+  ('Lo-fi Nights', 'Calm focus beats', 'lofi songs'),
 ];
 
-final mockArtists = List<Artist>.generate(
-  10,
-  (i) => Artist(
-    id: 'a$i',
-    name: _artistNames[i],
-    image: img('artist$i', 400),
-    listeners: '${(1.2 + i * 2.3).toStringAsFixed(1)}M monthly listeners',
-  ),
-);
-
-final mockAlbums = List<Album>.generate(
-  10,
-  (i) => Album(
-    id: 'al$i',
-    title: _albumTitles[i],
-    artistId: 'a$i',
-    artistName: _artistNames[i],
-    artwork: img('cover$i'),
-    year: 2016 + i,
-  ),
-);
-
-final mockSongs = List<Song>.generate(20, (i) {
-  final k = i % 10;
-  return Song(
-    id: 's$i',
-    title: _songTitles[i],
-    artistId: 'a$k',
-    artistName: _artistNames[k],
-    albumId: 'al$k',
-    albumName: _albumTitles[k],
-    artwork: img('cover$i'),
-    audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-${i % 16 + 1}.mp3',
-    duration: Duration(seconds: 190 + i * 9),
-  );
-});
-
-const _playlistInfo = [
-  ('Daily Mix', 'Your everyday favorites'),
-  ('Chill Vibes', 'A playlist by Musify'),
-  ('Workout Mix', 'Energy for your session'),
-  ('Party Hits', 'Turn it up'),
-  ('Romantic', 'Songs for the heart'),
-  ('Fresh Release', 'This week\'s new music'),
-  ('Discover Weekly', 'Something new for you'),
-  ('Lo-fi Nights', 'Calm focus beats'),
-];
-
-final mockPlaylists = List<Playlist>.generate(
-  8,
+final featuredPlaylists = List<Playlist>.generate(
+  _featured.length,
   (i) => Playlist(
     id: 'p$i',
-    name: _playlistInfo[i].$1,
-    description: _playlistInfo[i].$2,
+    name: _featured[i].$1,
+    description: _featured[i].$2,
     cover: img('playlist$i'),
-    songIds: [for (var j = 0; j < 8; j++) 's${(i * 3 + j) % 20}'],
+    query: _featured[i].$3,
   ),
 );
 
@@ -94,6 +42,7 @@ const _lyricText = [
   'Music for a better me',
 ];
 
+/// Sample synchronized lyrics (replace with a real lyrics API later).
 List<LyricLine> mockLyrics() => [
       for (var i = 0; i < _lyricText.length; i++) LyricLine(Duration(seconds: 6 + i * 9), _lyricText[i]),
     ];

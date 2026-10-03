@@ -1,13 +1,12 @@
+import 'package:flutter/services.dart';
+
 import 'mock_data.dart';
 import 'models.dart';
 
-/// UI depends only on these interfaces. Swap the Mock* classes for API-backed
-/// implementations (Dio/http) later without touching any screen.
+/// Screens depend only on these interfaces.
 abstract class MusicRepository {
-  Future<List<Song>> songs();
-  Future<List<Artist>> artists();
-  Future<List<Album>> albums();
-  Future<List<Playlist>> playlists();
+  Future<List<Song>> songs(String query);
+  Future<String> streamUrl(Song song);
   Future<List<LyricLine>> lyrics(String songId);
 }
 
@@ -15,43 +14,65 @@ abstract class SearchRepository {
   Future<SearchResults> search(String query);
 }
 
-Future<T> _latency<T>(T value, [int ms = 350]) async {
-  await Future<void>.delayed(Duration(milliseconds: ms));
-  return value;
+List<Artist> artistsFrom(List<Song> songs) {
+  final seen = <String>{};
+  return [
+    for (final s in songs)
+      if (seen.add(s.artistName)) Artist(id: s.artistName, name: s.artistName, image: s.artwork, listeners: 'Artist'),
+  ];
 }
 
-class MockMusicRepository implements MusicRepository {
+/// Real YouTube Music search + streams through NewPipeExtractor (Android, see MainActivity.kt).
+class NewPipeMusicRepository implements MusicRepository {
+  static const _ch = MethodChannel('musify/newpipe');
+  final _urls = <String, ({String url, DateTime at})>{};
+
   @override
-  Future<List<Song>> songs() => _latency(mockSongs);
+  Future<List<Song>> songs(String query) async {
+    final raw = await _ch.invokeMethod<List<dynamic>>('search', {'query': query}) ?? const [];
+    return [
+      for (final e in raw)
+        () {
+          final m = Map<String, dynamic>.from(e as Map);
+          final artist = (m['artist'] as String?) ?? '';
+          return Song(
+            id: m['url'] as String,
+            title: m['title'] as String,
+            artistName: artist.isEmpty ? 'Unknown artist' : artist,
+            artwork: (m['thumb'] as String?) ?? '',
+            duration: Duration(seconds: (m['duration'] as int?) ?? 0),
+          );
+        }(),
+    ];
+  }
+
   @override
-  Future<List<Artist>> artists() => _latency(mockArtists);
+  Future<String> streamUrl(Song song) async {
+    final c = _urls[song.id];
+    if (c != null && DateTime.now().difference(c.at) < const Duration(minutes: 20)) return c.url;
+    final m = await _ch.invokeMapMethod<String, dynamic>('stream', {'url': song.id});
+    final url = m?['audio'] as String?;
+    if (url == null) throw Exception('No audio stream');
+    _urls[song.id] = (url: url, at: DateTime.now());
+    return url;
+  }
+
   @override
-  Future<List<Album>> albums() => _latency(mockAlbums);
-  @override
-  Future<List<Playlist>> playlists() => _latency(mockPlaylists);
-  @override
-  Future<List<LyricLine>> lyrics(String songId) => _latency(mockLyrics(), 200);
+  Future<List<LyricLine>> lyrics(String songId) async => mockLyrics();
 }
 
-class MockSearchRepository implements SearchRepository {
+class NewPipeSearchRepository implements SearchRepository {
+  NewPipeSearchRepository(this._music);
+  final MusicRepository _music;
+
   @override
   Future<SearchResults> search(String query) async {
+    final songs = await _music.songs(query);
     final t = query.toLowerCase();
-    bool m(String s) => s.toLowerCase().contains(t);
-    var songs = mockSongs.where((s) => m(s.title) || m(s.artistName) || m(s.albumName)).toList();
-    final isCategory = categories.any((c) => c.$1.toLowerCase() == t);
-    if (songs.isEmpty && isCategory) {
-      final k = t.hashCode.abs() % 12;
-      songs = [for (var i = 0; i < 8; i++) mockSongs[(k + i) % mockSongs.length]];
-    }
-    return _latency(
-      SearchResults(
-        songs: songs,
-        artists: mockArtists.where((a) => m(a.name)).toList(),
-        albums: mockAlbums.where((a) => m(a.title) || m(a.artistName)).toList(),
-        playlists: mockPlaylists.where((p) => m(p.name)).toList(),
-      ),
-      250,
+    return SearchResults(
+      songs: songs,
+      artists: artistsFrom(songs),
+      playlists: featuredPlaylists.where((p) => p.name.toLowerCase().contains(t)).toList(),
     );
   }
 }

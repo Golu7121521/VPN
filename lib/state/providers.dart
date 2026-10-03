@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
@@ -9,37 +11,61 @@ import '../data/mock_data.dart';
 import '../data/models.dart';
 import '../data/repositories.dart';
 
+const kUserAgent = 'Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0';
+
 // ---------- infrastructure ----------
 final prefsProvider = Provider<SharedPreferences>((ref) => throw UnimplementedError());
-final musicRepoProvider = Provider<MusicRepository>((ref) => MockMusicRepository());
-final searchRepoProvider = Provider<SearchRepository>((ref) => MockSearchRepository());
+final musicRepoProvider = Provider<MusicRepository>((ref) => NewPipeMusicRepository());
+final searchRepoProvider =
+    Provider<SearchRepository>((ref) => NewPipeSearchRepository(ref.watch(musicRepoProvider)));
 
-final songsProvider = FutureProvider<List<Song>>((ref) => ref.watch(musicRepoProvider).songs());
-final artistsProvider = FutureProvider<List<Artist>>((ref) => ref.watch(musicRepoProvider).artists());
-final albumsProvider = FutureProvider<List<Album>>((ref) => ref.watch(musicRepoProvider).albums());
-final playlistsProvider = FutureProvider<List<Playlist>>((ref) => ref.watch(musicRepoProvider).playlists());
+final songsQueryProvider =
+    FutureProvider.family<List<Song>, String>((ref, q) => ref.watch(musicRepoProvider).songs(q));
+final songsProvider = FutureProvider<List<Song>>((ref) => ref.watch(songsQueryProvider('trending songs').future));
+final newReleasesProvider =
+    FutureProvider<List<Song>>((ref) => ref.watch(songsQueryProvider('new songs 2026').future));
+final recommendedProvider =
+    FutureProvider<List<Song>>((ref) => ref.watch(songsQueryProvider('latest hindi songs').future));
+final artistsProvider = FutureProvider<List<Artist>>((ref) async {
+  final a = await ref.watch(songsProvider.future);
+  final b = await ref.watch(newReleasesProvider.future);
+  return artistsFrom([...a, ...b]).take(10).toList();
+});
+final playlistsProvider = FutureProvider<List<Playlist>>((ref) async => featuredPlaylists);
 final lyricsProvider = FutureProvider.family<List<LyricLine>, String>(
     (ref, id) => ref.watch(musicRepoProvider).lyrics(id));
-final searchProvider = FutureProvider.family<SearchResults, String>(
-    (ref, q) => ref.watch(searchRepoProvider).search(q));
+final searchProvider =
+    FutureProvider.family<SearchResults, String>((ref, q) => ref.watch(searchRepoProvider).search(q));
 
-// ---------- likes ----------
-class LikesNotifier extends Notifier<Set<String>> {
+// ---------- likes (full songs are stored so they survive restarts) ----------
+class Likes {
+  const Likes(this.songs);
+  final List<Song> songs;
+  bool contains(String id) => songs.any((s) => s.id == id);
+  int get length => songs.length;
+}
+
+class LikesNotifier extends Notifier<Likes> {
   @override
-  Set<String> build() {
-    final p = ref.watch(prefsProvider);
-    return (p.getStringList('likes') ?? ['s0', 's3', 's5', 's8', 's11']).toSet();
+  Likes build() {
+    final raw = ref.watch(prefsProvider).getStringList('liked_songs') ?? [];
+    return Likes([for (final r in raw) Song.fromJson(jsonDecode(r) as Map<String, dynamic>)]);
   }
 
-  void toggle(String id) {
-    final n = {...state};
-    if (!n.remove(id)) n.add(id);
-    state = n;
-    ref.read(prefsProvider).setStringList('likes', n.toList());
+  void toggle(Song s) {
+    final l = [...state.songs];
+    final i = l.indexWhere((e) => e.id == s.id);
+    if (i >= 0) {
+      l.removeAt(i);
+    } else {
+      l.insert(0, s);
+    }
+    state = Likes(l);
+    ref.read(prefsProvider).setStringList('liked_songs', [for (final e in l) jsonEncode(e.toJson())]);
   }
 }
 
-final likesProvider = NotifierProvider<LikesNotifier, Set<String>>(LikesNotifier.new);
+final likesProvider = NotifierProvider<LikesNotifier, Likes>(LikesNotifier.new);
 
 // ---------- recent searches ----------
 class RecentsNotifier extends Notifier<List<String>> {
@@ -109,16 +135,15 @@ class UserPlaylistsNotifier extends Notifier<List<Playlist>> {
       name: name,
       description: desc.isEmpty ? 'My playlist' : desc,
       cover: img('user${state.length}${name.length}'),
-      songIds: const [],
     );
     state = [p, ...state];
     return p;
   }
 
-  void addSong(String pid, String sid) {
+  void addSong(String pid, Song s) {
     state = [
       for (final p in state)
-        if (p.id == pid && !p.songIds.contains(sid)) p.copyWith(songIds: [...p.songIds, sid]) else p,
+        if (p.id == pid && !p.songs.contains(s)) p.copyWith(songs: [...p.songs, s]) else p,
     ];
   }
 
@@ -180,26 +205,32 @@ class PlayerStatus {
 
 class PlayerNotifier extends Notifier<PlayerStatus> {
   late final AudioPlayer _p;
-  ConcatenatingAudioSource? _src;
+  final _rng = Random();
+  int _token = 0;
+  bool _resolving = false;
+  bool _completedHandled = false;
 
   Stream<Duration> get positionStream => _p.positionStream;
 
   @override
   PlayerStatus build() {
-    _p = AudioPlayer();
+    _p = AudioPlayer(userAgent: kUserAgent);
     final subs = <StreamSubscription<Object?>>[
       _p.playerStateStream.listen((s) {
+        final done = s.processingState == ProcessingState.completed;
         state = state.copyWith(
-          playing: s.playing && s.processingState != ProcessingState.completed,
-          loading: s.processingState == ProcessingState.loading ||
+          playing: s.playing && !done,
+          loading: _resolving ||
+              s.processingState == ProcessingState.loading ||
               s.processingState == ProcessingState.buffering,
         );
-      }),
-      _p.durationStream.listen((d) => state = state.copyWith(duration: d ?? Duration.zero)),
-      _p.currentIndexStream.listen((i) {
-        if (i != null && i != state.index && i < state.queue.length) {
-          state = state.copyWith(index: i, history: _hist(state.queue[i]));
+        if (done && !_completedHandled) {
+          _completedHandled = true;
+          _onCompleted();
         }
+      }),
+      _p.durationStream.listen((d) {
+        if (d != null) state = state.copyWith(duration: d);
       }),
       _p.playbackEventStream.listen((_) {}, onError: (Object e, StackTrace st) {
         state = state.copyWith(error: 'Playback error. Check your internet connection.', playing: false);
@@ -216,92 +247,136 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
 
   List<Song> _hist(Song s) => [s, ...state.history.where((e) => e != s)].take(15).toList();
 
-  AudioSource _toSource(Song s) => AudioSource.uri(
-        Uri.parse(s.audioUrl),
+  Future<void> playQueue(List<Song> songs, int index) async {
+    if (songs.isEmpty) return;
+    state = state.copyWith(queue: songs, index: index, history: _hist(songs[index]));
+    await _load();
+  }
+
+  Future<void> _load() async {
+    final s = state.current;
+    if (s == null) return;
+    final my = ++_token;
+    _completedHandled = false;
+    _resolving = true;
+    state = state.copyWith(loading: true, playing: false, duration: s.duration, clearError: true);
+    try {
+      final url = s.audioUrl.isNotEmpty ? s.audioUrl : await ref.read(musicRepoProvider).streamUrl(s);
+      if (my != _token) return;
+      await _p.setAudioSource(AudioSource.uri(
+        Uri.parse(url),
         tag: MediaItem(
           id: s.id,
           title: s.title,
           artist: s.artistName,
-          album: s.albumName,
-          artUri: Uri.parse(s.artwork),
+          artUri: s.artwork.isEmpty ? null : Uri.parse(s.artwork),
         ),
-      );
-
-  Future<void> playQueue(List<Song> songs, int index) async {
-    if (songs.isEmpty) return;
-    state = state.copyWith(queue: songs, index: index, history: _hist(songs[index]), clearError: true);
-    _src = ConcatenatingAudioSource(children: songs.map(_toSource).toList());
-    try {
-      await _p.setAudioSource(_src!, initialIndex: index, initialPosition: Duration.zero);
+      ));
+      if (my != _token) return;
+      _resolving = false;
       _p.play();
     } catch (_) {
-      state = state.copyWith(error: 'Could not play this song.', playing: false);
+      if (my == _token) {
+        _resolving = false;
+        state = state.copyWith(loading: false, playing: false, error: 'Could not play this song.');
+      }
     }
+  }
+
+  void _onCompleted() {
+    if (state.repeat == RepeatKind.one) {
+      _completedHandled = false;
+      _p.seek(Duration.zero);
+      _p.play();
+      return;
+    }
+    final last = state.index + 1 >= state.queue.length;
+    if (last && !state.shuffle && state.repeat == RepeatKind.off) {
+      state = state.copyWith(playing: false);
+      return;
+    }
+    next();
+  }
+
+  void _goto(int i) {
+    state = state.copyWith(index: i, history: _hist(state.queue[i]));
+    _load();
   }
 
   void toggle() => state.playing ? _p.pause() : _p.play();
   void seek(Duration d) => _p.seek(d);
-  void next() => _p.seekToNext();
+
+  void next() {
+    final n = state.queue.length;
+    if (n == 0) return;
+    int i;
+    if (state.shuffle && n > 1) {
+      do {
+        i = _rng.nextInt(n);
+      } while (i == state.index);
+    } else {
+      i = state.index + 1;
+      if (i >= n) {
+        if (state.repeat != RepeatKind.all) return;
+        i = 0;
+      }
+    }
+    _goto(i);
+  }
+
   void previous() {
+    final n = state.queue.length;
+    if (n == 0) return;
     if (_p.position > const Duration(seconds: 3)) {
       _p.seek(Duration.zero);
-    } else {
-      _p.seekToPrevious();
+      return;
     }
+    var i = state.index - 1;
+    if (i < 0) i = state.repeat == RepeatKind.all ? n - 1 : 0;
+    _goto(i);
   }
 
-  Future<void> skipTo(int i) async {
-    await _p.seek(Duration.zero, index: i);
-    _p.play();
+  void skipTo(int i) => _goto(i);
+
+  void toggleShuffle() => state = state.copyWith(shuffle: !state.shuffle);
+
+  void cycleRepeat() => state = state.copyWith(repeat: RepeatKind.values[(state.repeat.index + 1) % 3]);
+
+  void playNext(Song s) {
+    if (state.queue.isEmpty) {
+      playQueue([s], 0);
+      return;
+    }
+    state = state.copyWith(queue: [...state.queue]..insert(state.index + 1, s));
   }
 
-  Future<void> toggleShuffle() async {
-    final v = !state.shuffle;
-    if (v) await _p.shuffle();
-    await _p.setShuffleModeEnabled(v);
-    state = state.copyWith(shuffle: v);
-  }
-
-  Future<void> cycleRepeat() async {
-    final next = RepeatKind.values[(state.repeat.index + 1) % 3];
-    await _p.setLoopMode(
-        next == RepeatKind.off ? LoopMode.off : (next == RepeatKind.all ? LoopMode.all : LoopMode.one));
-    state = state.copyWith(repeat: next);
-  }
-
-  Future<void> playNext(Song s) async {
-    if (state.queue.isEmpty || _src == null) return playQueue([s], 0);
-    final at = state.index + 1;
-    await _src!.insert(at, _toSource(s));
-    state = state.copyWith(queue: [...state.queue]..insert(at, s));
-  }
-
-  Future<void> addToQueue(Song s) async {
-    if (state.queue.isEmpty || _src == null) return playQueue([s], 0);
-    await _src!.add(_toSource(s));
+  void addToQueue(Song s) {
+    if (state.queue.isEmpty) {
+      playQueue([s], 0);
+      return;
+    }
     state = state.copyWith(queue: [...state.queue, s]);
   }
 
-  Future<void> move(int oldI, int newI) async {
+  void move(int oldI, int newI) {
     if (newI > oldI) newI--;
     if (oldI == newI) return;
     final q = [...state.queue];
     final cur = state.current;
     q.insert(newI, q.removeAt(oldI));
     state = state.copyWith(queue: q, index: cur == null ? 0 : q.indexOf(cur));
-    await _src?.move(oldI, newI);
   }
 
-  Future<void> removeAt(int i) async {
+  void removeAt(int i) {
     if (i == state.index) return;
     final q = [...state.queue]..removeAt(i);
     state = state.copyWith(queue: q, index: i < state.index ? state.index - 1 : state.index);
-    await _src?.removeAt(i);
   }
 
   Future<void> clearQueue() async {
+    _token++;
+    _resolving = false;
     await _p.stop();
-    _src = null;
     state = PlayerStatus(history: state.history, shuffle: state.shuffle, repeat: state.repeat);
   }
 
@@ -311,5 +386,5 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
 
 final playerProvider = NotifierProvider<PlayerNotifier, PlayerStatus>(PlayerNotifier.new);
 
-final positionProvider = StreamProvider<Duration>(
-    (ref) => ref.watch(playerProvider.notifier).positionStream);
+final positionProvider =
+    StreamProvider<Duration>((ref) => ref.watch(playerProvider.notifier).positionStream);

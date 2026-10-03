@@ -45,12 +45,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           child: TextField(
             controller: _c,
             textInputAction: TextInputAction.search,
-            onChanged: (v) => setState(() => _q = v.trim()),
+            onChanged: (v) => setState(() {
+              if (v.trim().isEmpty) _q = '';
+            }),
             onSubmitted: _submit,
             decoration: InputDecoration(
               hintText: 'Search songs, artists, albums...',
               prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _q.isEmpty
+              suffixIcon: _c.text.isEmpty
                   ? null
                   : IconButton(
                       tooltip: 'Clear',
@@ -90,8 +92,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               InkWell(
                 borderRadius: BorderRadius.circular(16),
                 onTap: () {
-                  _c.text = c.$1;
-                  _submit(c.$1);
+                  _c.text = '${c.$1} songs';
+                  _submit('${c.$1} songs');
                 },
                 child: Ink(
                   padding: const EdgeInsets.all(14),
@@ -138,7 +140,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       value: ref.watch(searchProvider(_q)),
       onRetry: () => ref.invalidate(searchProvider(_q)),
       builder: (r) => DefaultTabController(
-        length: 4,
+        length: 3,
         child: Column(children: [
           const TabBar(
             isScrollable: true,
@@ -147,7 +149,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             labelColor: Colors.white,
             unselectedLabelColor: AppColors.textSecondary,
             dividerColor: Colors.transparent,
-            tabs: [Tab(text: 'Songs'), Tab(text: 'Artists'), Tab(text: 'Albums'), Tab(text: 'Playlists')],
+            tabs: [Tab(text: 'Songs'), Tab(text: 'Artists'), Tab(text: 'Playlists')],
           ),
           Expanded(
             child: TabBarView(children: [
@@ -159,18 +161,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   leading: Artwork(r.artists[i].image, size: 52, circle: true),
                   title: Text(r.artists[i].name),
                   subtitle: Text(r.artists[i].listeners, style: const TextStyle(color: AppColors.textSecondary)),
-                  onTap: () => context.push('/artist/${r.artists[i].id}'),
-                ),
-              ),
-              _list(
-                r.albums.length,
-                'No albums found',
-                (i) => ListTile(
-                  leading: Artwork(r.albums[i].artwork, size: 52, radius: 10),
-                  title: Text(r.albums[i].title),
-                  subtitle: Text('${r.albums[i].artistName} • ${r.albums[i].year}',
-                      style: const TextStyle(color: AppColors.textSecondary)),
-                  onTap: () => context.push('/album/${r.albums[i].id}'),
+                  onTap: () => context.push('/artist/${Uri.encodeComponent(r.artists[i].id)}'),
                 ),
               ),
               _list(

@@ -18,10 +18,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   static const _chips = ['All', 'Music', 'Podcasts', 'Live'];
 
   void _retry() {
+    ref.invalidate(songsQueryProvider);
     ref.invalidate(songsProvider);
+    ref.invalidate(newReleasesProvider);
+    ref.invalidate(recommendedProvider);
     ref.invalidate(artistsProvider);
-    ref.invalidate(albumsProvider);
-    ref.invalidate(playlistsProvider);
   }
 
   String get _greeting {
@@ -32,15 +33,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final songs = ref.watch(songsProvider);
-    final artists = ref.watch(artistsProvider);
-    final albums = ref.watch(albumsProvider);
     final playlists = ref.watch(playlistsProvider);
-    final all = <AsyncValue<Object?>>[songs, artists, albums, playlists];
 
     final Widget body;
-    if (all.any((v) => v.hasError)) {
+    if (songs.hasError) {
       body = ErrorState(onRetry: _retry);
-    } else if (!all.every((v) => v.hasValue)) {
+    } else if (!songs.hasValue || !playlists.hasValue) {
       body = const LoadingState();
     } else if (_chip > 1) {
       body = const EmptyState(
@@ -51,8 +49,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } else {
       body = _Content(
         songs: songs.requireValue,
-        artists: artists.requireValue,
-        albums: albums.requireValue,
+        fresh: ref.watch(newReleasesProvider),
+        rec: ref.watch(recommendedProvider),
+        artists: ref.watch(artistsProvider),
         playlists: playlists.requireValue,
       );
     }
@@ -117,20 +116,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 }
 
 class _Content extends ConsumerWidget {
-  const _Content({required this.songs, required this.artists, required this.albums, required this.playlists});
+  const _Content({
+    required this.songs,
+    required this.fresh,
+    required this.rec,
+    required this.artists,
+    required this.playlists,
+  });
   final List<Song> songs;
-  final List<Artist> artists;
-  final List<Album> albums;
+  final AsyncValue<List<Song>> fresh, rec;
+  final AsyncValue<List<Artist>> artists;
   final List<Playlist> playlists;
+
+  Widget _wait<T>(AsyncValue<T> v, Widget Function(T) b) => v.when(
+        data: b,
+        loading: () => const SizedBox(height: 120, child: LoadingState()),
+        error: (_, __) => const SizedBox.shrink(),
+      );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final w = (MediaQuery.sizeOf(context).width * 0.4).clamp(130.0, 200.0).toDouble();
     final ctl = ref.read(playerProvider.notifier);
-    final trending = songs.take(10).toList();
+    final trending = songs.take(12).toList();
     final hist = ref.watch(playerProvider.select((s) => s.history));
-    final recent = hist.isEmpty ? songs.skip(10).take(10).toList() : hist;
-    final rec = songs.skip(4).take(8).toList();
+
+    Widget songRow(List<Song> list, double width) => HList(
+          height: width + 58,
+          count: list.length,
+          itemBuilder: (_, i) => PosterCard(
+            imageUrl: list[i].artwork,
+            title: list[i].title,
+            subtitle: list[i].artistName,
+            width: width,
+            onTap: () => ctl.playQueue(list, i),
+          ),
+        );
 
     return ListView(padding: const EdgeInsets.only(bottom: 24), children: [
       Padding(
@@ -138,17 +159,7 @@ class _Content extends ConsumerWidget {
         child: _Hero(onPlay: () => ctl.playQueue(trending, 0)),
       ),
       const SectionHeader('Trending Now'),
-      HList(
-        height: w + 58,
-        count: trending.length,
-        itemBuilder: (_, i) => PosterCard(
-          imageUrl: trending[i].artwork,
-          title: trending[i].title,
-          subtitle: trending[i].artistName,
-          width: w,
-          onTap: () => ctl.playQueue(trending, i),
-        ),
-      ),
+      songRow(trending, w),
       const SectionHeader('Made For You'),
       HList(
         height: w + 58,
@@ -161,45 +172,36 @@ class _Content extends ConsumerWidget {
           onTap: () => context.push('/playlist/${playlists[i].id}'),
         ),
       ),
-      const SectionHeader('Recently Played'),
-      HList(
-        height: w * .75 + 58,
-        count: recent.length,
-        itemBuilder: (_, i) => PosterCard(
-          imageUrl: recent[i].artwork,
-          title: recent[i].title,
-          subtitle: recent[i].artistName,
-          width: w * .75,
-          onTap: () => ctl.playQueue(recent, i),
-        ),
-      ),
+      if (hist.isNotEmpty) ...[
+        const SectionHeader('Recently Played'),
+        songRow(hist, w * .75),
+      ],
       const SectionHeader('Popular Artists'),
-      HList(
-        height: w * .7 + 50,
-        count: artists.length,
-        itemBuilder: (_, i) => PosterCard(
-          imageUrl: artists[i].image,
-          title: artists[i].name,
-          subtitle: 'Artist',
-          width: w * .7,
-          circle: true,
-          onTap: () => context.push('/artist/${artists[i].id}'),
+      _wait(
+        artists,
+        (list) => HList(
+          height: w * .7 + 50,
+          count: list.length,
+          itemBuilder: (_, i) => PosterCard(
+            imageUrl: list[i].image,
+            title: list[i].name,
+            subtitle: 'Artist',
+            width: w * .7,
+            circle: true,
+            onTap: () => context.push('/artist/${Uri.encodeComponent(list[i].id)}'),
+          ),
         ),
       ),
       const SectionHeader('New Releases'),
-      HList(
-        height: w + 58,
-        count: albums.length,
-        itemBuilder: (_, i) => PosterCard(
-          imageUrl: albums[i].artwork,
-          title: albums[i].title,
-          subtitle: albums[i].artistName,
-          width: w,
-          onTap: () => context.push('/album/${albums[i].id}'),
-        ),
-      ),
+      _wait(fresh, (list) => songRow(list, w)),
       const SectionHeader('Recommended For You'),
-      for (var i = 0; i < rec.length; i++) SongTile(song: rec[i], onTap: () => ctl.playQueue(rec, i)),
+      _wait(
+        rec,
+        (list) => Column(children: [
+          for (var i = 0; i < list.length && i < 10; i++)
+            SongTile(song: list[i], onTap: () => ctl.playQueue(list, i)),
+        ]),
+      ),
     ]);
   }
 }
