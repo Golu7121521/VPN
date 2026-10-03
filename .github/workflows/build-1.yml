@@ -113,10 +113,12 @@ jobs:
               <color name="card">#FFFFFF</color>
               <color name="stroke">#E1E4EE</color>
               <color name="muted">#6B7280</color>
-              <color name="kw">#7C3AED</color>
-              <color name="st">#0E8A4F</color>
-              <color name="nu">#D97706</color>
+              <color name="kw">#C678DD</color>
+              <color name="st">#98C379</color>
+              <color name="nu">#D19A66</color>
               <color name="cm">#8B93A5</color>
+              <color name="ty">#E5C07B</color>
+              <color name="fn">#61AFEF</color>
               <color name="ok">#1A9E5C</color>
               <color name="bad">#D93025</color>
               <color name="white">#FFFFFF</color>
@@ -132,10 +134,12 @@ jobs:
               <color name="card">#171A26</color>
               <color name="stroke">#272B3B</color>
               <color name="muted">#8B93A8</color>
-              <color name="kw">#C792EA</color>
-              <color name="st">#A5E075</color>
-              <color name="nu">#F78C6C</color>
-              <color name="cm">#6B7394</color>
+              <color name="kw">#C678DD</color>
+              <color name="st">#98C379</color>
+              <color name="nu">#D19A66</color>
+              <color name="cm">#5C6370</color>
+              <color name="ty">#E5C07B</color>
+              <color name="fn">#61AFEF</color>
               <color name="ok">#4ADE80</color>
               <color name="bad">#FF6B6B</color>
               <color name="white">#FFFFFF</color>
@@ -169,12 +173,19 @@ jobs:
           class CodeView(c: Context) : EditText(c) {
               val gp = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.MONOSPACE; textAlign = Paint.Align.RIGHT }
               val lnp = Paint().apply { strokeWidth = 2f }
+              val bgp = Paint().apply { style = Paint.Style.FILL }
               var gw = 0f; var dg = 0; var gc = 0
               val d = resources.displayMetrics.density
               var acc = 1f; var multi = false
               var lineNo = IntArray(0); var lastL: Layout? = null
               
-              init { setHorizontallyScrolling(true) }
+              init { 
+                  setHorizontallyScrolling(true) 
+                  setBackgroundColor(Color.TRANSPARENT)
+                  setPadding(0, dp(8), dp(8), dp(8))
+              }
+
+              fun dp(x: Int) = (x * resources.displayMetrics.density).toInt()
 
               val sd = ScaleGestureDetector(c, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                   override fun onScale(s: ScaleGestureDetector): Boolean {
@@ -188,14 +199,17 @@ jobs:
               })
 
               fun pad(force: Boolean = false) {
-                  val digits = (text.count { it == '\n' } + 1).toString().length.coerceAtLeast(2)
+                  val digits = (text.count { it == '\n' } + 1).toString().length.coerceAtLeast(3)
                   if (!force && digits == dg) return
                   dg = digits; gp.textSize = textSize * 0.85f
-                  gw = gp.measureText("9".repeat(digits)) + 14 * d
-                  setPadding((gw + 6 * d).toInt(), (8 * d).toInt(), (8 * d).toInt(), (8 * d).toInt())
+                  gw = gp.measureText("9".repeat(digits)) + 16 * d
+                  setPadding((gw + 8 * d).toInt(), dp(12), dp(12), dp(12))
               }
 
               override fun onDraw(cv: Canvas) {
+                  bgp.color = gc and 0x11FFFFFF // Gutter Background
+                  cv.drawRect(scrollX.toFloat(), 0f, scrollX + gw + 4 * d, height.toFloat() + scrollY.toFloat(), bgp)
+                  
                   val l = layout
                   if (l != null) {
                       if (lastL !== l || lineNo.size != l.lineCount) {
@@ -203,11 +217,15 @@ jobs:
                           for (i in 0 until l.lineCount) { if (i > 0 && t[l.getLineStart(i) - 1] == '\n') n++; a[i] = n }
                           lineNo = a
                       }
-                      gp.color = gc; lnp.color = gc and 0x55FFFFFF
+                      gp.color = gc; lnp.color = gc and 0x44FFFFFF
                       val clip = cv.clipBounds; val pt = compoundPaddingTop
                       val f = l.getLineForVertical((clip.top - pt).coerceAtLeast(0)); val e = l.getLineForVertical((clip.bottom - pt).coerceAtLeast(0))
-                      for (i in f..e) { if (i == 0 || text[l.getLineStart(i) - 1] == '\n') cv.drawText(lineNo[i].toString(), gw - 8 * d, l.getLineBaseline(i) + pt.toFloat(), gp) }
-                      cv.drawLine(gw - 3 * d, clip.top.toFloat(), gw - 3 * d, clip.bottom.toFloat(), lnp)
+                      for (i in f..e) { 
+                          if (i == 0 || text[l.getLineStart(i) - 1] == '\n') {
+                              cv.drawText(lineNo[i].toString(), scrollX + gw - 6 * d, l.getLineBaseline(i) + pt.toFloat(), gp) 
+                          }
+                      }
+                      cv.drawLine(scrollX + gw, clip.top.toFloat(), scrollX + gw, clip.bottom.toFloat(), lnp)
                   }
                   super.onDraw(cv)
               }
@@ -242,10 +260,12 @@ jobs:
               var live = 0
               val logMap = HashMap<Long, String>()
 
-              val KW = Regex("\\b(class|fun|val|var|def|function|return|if|else|for|while|import|package|public|private|static|void|int|new|true|false|null|const|let|async|await|try|catch|from|in|is|when|override|this|echo|run)\\b")
+              val KW = Regex("\\b(class|fun|val|var|def|function|return|if|else|for|while|import|package|public|private|protected|static|void|int|new|true|false|null|const|let|async|await|try|catch|from|in|is|when|override|this|echo|run|break|continue)\\b")
               val NUM = Regex("\\b\\d+(\\.\\d+)?\\b")
               val STR = Regex("\"[^\"\\n]*\"|'[^'\\n]*'")
-              val CMT = Regex("//.*|#.*")
+              val CMT = Regex("//.*|/\\*[\\s\\S]*?\\*/|#.*")
+              val TY = Regex("\\b[A-Z][a-zA-Z0-9_]*\\b") // Types / Classes
+              val FN = Regex("\\b[a-z_][a-zA-Z0-9_]*(?=\\s*\\()") // Functions
 
               // ---------- helpers ----------
               fun dp(x: Int) = (x * resources.displayMetrics.density).toInt()
@@ -272,6 +292,16 @@ jobs:
                   setPadding(dp(14), dp(8), dp(14), dp(8))
                   background = GradientDrawable().apply { setColor(Color.parseColor("#3B82F6")); cornerRadius = dp(8).toFloat() }
                   layoutParams = lp(-2, -2, 0f, 0).apply { setMargins(dp(4), 0, dp(4), 0) }
+                  setOnClickListener { f() }
+              }
+
+              // Editor Compact Button
+              fun smallBtn(t: String, f: () -> Unit) = Button(this).apply {
+                  text = t; isAllCaps = false; textSize = 11f; setTextColor(-1)
+                  minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0; stateListAnimator = null
+                  setPadding(dp(10), dp(5), dp(10), dp(5))
+                  background = GradientDrawable().apply { setColor(Color.parseColor("#3B82F6")); cornerRadius = dp(6).toFloat() }
+                  layoutParams = lp(-2, -2, 0f, 0).apply { setMargins(dp(2), 0, dp(2), 0) }
                   setOnClickListener { f() }
               }
               
@@ -554,7 +584,54 @@ jobs:
                   if (e.length > 200000) return
                   val t = e.toString()
                   fun mark(r: Regex, c: Int) { for (m in r.findAll(t)) e.setSpan(Hl(c), m.range.first, m.range.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
-                  mark(KW, col(R.color.kw)); mark(NUM, col(R.color.nu)); mark(STR, col(R.color.st)); mark(CMT, col(R.color.cm))
+                  
+                  mark(FN, col(R.color.fn))
+                  mark(TY, col(R.color.ty))
+                  mark(KW, col(R.color.kw))
+                  mark(NUM, col(R.color.nu))
+                  mark(STR, col(R.color.st))
+                  mark(CMT, col(R.color.cm))
+              }
+
+              fun showSearchReplace(cv: CodeView) {
+                  val v = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(8), 0, dp(8)) }
+                  val fInput = EditText(this).apply { hint = "Find..."; textSize = 15f; setTextColor(col(R.color.fg)); background = box(col(R.color.bg), col(R.color.stroke), 8); setPadding(dp(12), dp(12), dp(12), dp(12)) }
+                  val rInput = EditText(this).apply { hint = "Replace with..."; textSize = 15f; setTextColor(col(R.color.fg)); background = box(col(R.color.bg), col(R.color.stroke), 8); setPadding(dp(12), dp(12), dp(12), dp(12)); layoutParams = lp(-1,-2).apply{topMargin=dp(10)} }
+                  v.addView(fInput); v.addView(rInput)
+                  
+                  var idx = 0
+                  val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = lp(-1,-2).apply{topMargin=dp(14)} }
+                  row.addView(smallBtn("Find Next") {
+                      val q = fInput.text.toString()
+                      if (q.isNotEmpty()) {
+                          val txt = cv.text.toString()
+                          idx = txt.indexOf(q, idx)
+                          if (idx >= 0) {
+                              cv.setSelection(idx, idx + q.length)
+                              cv.requestFocus()
+                              idx += q.length
+                          } else {
+                              idx = 0; toast("No more matches")
+                          }
+                      }
+                  })
+                  row.addView(smallBtn("Replace") {
+                      if (cv.selectionEnd > cv.selectionStart) {
+                          cv.text.replace(cv.selectionStart, cv.selectionEnd, rInput.text.toString())
+                          hl(cv.text)
+                      }
+                  })
+                  row.addView(smallBtn("All") {
+                      val q = fInput.text.toString()
+                      if (q.isNotEmpty()) {
+                          val nt = cv.text.toString().replace(q, rInput.text.toString())
+                          cv.setText(nt)
+                          hl(cv.text)
+                          toast("Replaced all matches")
+                      }
+                  })
+                  v.addView(row)
+                  dlg("Search & Replace", v, null, "Close")
               }
 
               fun edit(repo: File, dir: File, f: File) {
@@ -563,10 +640,11 @@ jobs:
                   val undo = ArrayList<String>(); val redo = ArrayList<String>()
                   
                   val cv = CodeView(this).apply {
-                      setText(last); typeface = Typeface.MONOSPACE; setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                      setTextColor(col(R.color.fg)); background = null; gravity = Gravity.TOP; gc = col(R.color.muted)
+                      setText(last); typeface = Typeface.MONOSPACE; setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                      setTextColor(col(R.color.fg)); gravity = Gravity.TOP; gc = col(R.color.muted)
                       inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
                       minLines = 20; pad(true)
+                      layoutParams = FrameLayout.LayoutParams(-2, -2)
                   }
                   hl(cv.text)
                   val commit = Runnable {
@@ -586,13 +664,24 @@ jobs:
                   root.removeAllViews(); root.gravity = Gravity.TOP
                   onBack = { flush(); browse(repo, dir) }
                   val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(12)) }
-                  top.addView(tv(f.name, 17, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.MIDDLE }, lp(0, -2, 1f))
-                  top.addView(btn("Save") { save() })
-                  top.addView(btn("Undo") { flush(); if (undo.isNotEmpty()) { redo.add(last); put(undo.removeAt(undo.size - 1)) } })
-                  top.addView(btn("Redo") { flush(); if (redo.isNotEmpty()) { undo.add(last); put(redo.removeAt(redo.size - 1)) } })
-                  top.addView(btn("Push") { save(); pushOne(repo, f) })
+                  val title = tv(f.name, 15, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.MIDDLE; setPadding(0, 0, dp(8), 0) }
+                  top.addView(title, lp(0, -2, 1f))
+                  
+                  val actBar = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+                  val actRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                  actRow.addView(smallBtn("Save") { save() })
+                  actRow.addView(smallBtn("Search") { showSearchReplace(cv) })
+                  actRow.addView(smallBtn("Undo") { flush(); if (undo.isNotEmpty()) { redo.add(last); put(undo.removeAt(undo.size - 1)) } })
+                  actRow.addView(smallBtn("Redo") { flush(); if (redo.isNotEmpty()) { undo.add(last); put(redo.removeAt(redo.size - 1)) } })
+                  actRow.addView(smallBtn("Push") { save(); pushOne(repo, f) })
+                  actBar.addView(actRow)
+                  top.addView(actBar)
                   root.addView(top)
-                  root.addView(ScrollView(this).apply { isFillViewport = true; addView(cv, FrameLayout.LayoutParams(-1, -2)) }, lp(-1, 0, 1f))
+                  
+                  // 2D Smooth Scrolling Setup
+                  val hsv = HorizontalScrollView(this).apply { isFillViewport = true; addView(cv) }
+                  val vsv = ScrollView(this).apply { isFillViewport = true; addView(hsv) }
+                  root.addView(vsv, lp(-1, 0, 1f))
               }
 
               // ---------- GitHub API ----------
@@ -696,7 +785,6 @@ jobs:
                   val sv = l.parent as? ScrollView; val y = sv?.scrollY ?: 0
                   l.removeAllViews()
                   
-                  // Loop Jobs and internal steps dynamically
                   for (k in 0 until js.length()) {
                       val j = js.getJSONObject(k)
                       val id = j.getLong("id")
@@ -712,7 +800,6 @@ jobs:
                               val isFailed = stConcl == "failure"
                               val isCompleted = stStatus == "completed"
                               
-                              // Separate Box for every step
                               val stepBox = LinearLayout(this).apply {
                                   orientation = LinearLayout.VERTICAL
                                   background = box(col(R.color.card), col(R.color.stroke), 12)
@@ -725,7 +812,6 @@ jobs:
                                   setPadding(dp(16), dp(14), dp(16), dp(14))
                               }
                               
-                              // Visual status icons
                               if (isRunning) {
                                   stepRow.addView(ProgressBar(this).apply { 
                                       isIndeterminate = true
@@ -739,11 +825,9 @@ jobs:
                                   stepRow.addView(tv("○", 16, true, R.color.muted).apply { setPadding(0, 0, dp(12), 0) })
                               }
                               
-                              // Step name
                               val nameColor = if (isRunning || isFailed) R.color.fg else R.color.muted
                               stepRow.addView(tv(st.getString("name"), 14, isRunning, nameColor).apply { setSingleLine() }, lp(0, -2, 1f))
                               
-                              // Step Completion Status texts
                               if (isCompleted) {
                                   val txt = when(stConcl) { "success" -> "Completed"; "failure" -> "Failed"; "skipped" -> "Skipped"; else -> stConcl }
                                   val txtCol = when(stConcl) { "success" -> R.color.ok; "failure" -> R.color.bad; else -> R.color.muted }
@@ -752,7 +836,6 @@ jobs:
 
                               stepBox.addView(stepRow)
                               
-                              // Live Logs below currently running step (Auto-hiding, no empty logs)
                               if (isRunning || isFailed) {
                                   val lg = logMap[id]
                                   if (!lg.isNullOrEmpty()) {
@@ -771,7 +854,6 @@ jobs:
                       }
                   }
                   
-                  // Artifact Download Step
                   if (artifactState > 0) {
                       val stepBox = LinearLayout(this).apply {
                           orientation = LinearLayout.VERTICAL
