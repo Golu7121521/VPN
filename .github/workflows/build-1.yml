@@ -157,6 +157,17 @@ jobs:
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
+                  val sp = getSharedPreferences("crash", MODE_PRIVATE)
+                  Thread.setDefaultUncaughtExceptionHandler { _, e ->
+                      sp.edit().putString("log", android.util.Log.getStackTraceString(e)).commit()
+                      android.os.Process.killProcess(android.os.Process.myPid())
+                  }
+                  sp.getString("log", null)?.let {
+                      sp.edit().remove("log").apply()
+                      androidx.appcompat.app.AlertDialog.Builder(this)
+                          .setTitle("Pichla crash").setMessage(it.take(1500))
+                          .setPositiveButton("OK", null).show()
+                  }
                   NewPipe.init(DL())
                   val ds = DefaultHttpDataSource.Factory().setUserAgent(UA)
                   player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(ds)).build()
@@ -207,8 +218,8 @@ jobs:
                               list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1,
                                   r.map { "${it.name}\n${it.uploaderName ?: ""}" })
                           }
-                      } catch (e: Exception) {
-                          runOnUiThread { header.text = "Error: ${e.message}" }
+                      } catch (e: Throwable) {
+                          runOnUiThread { header.text = "Error: ${e}" }
                       }
                   }.start()
               }
@@ -225,7 +236,7 @@ jobs:
                       ex.fetchPage()
                       val r = ex.initialPage.items.filterIsInstance<StreamInfoItem>()
                       if (r.isNotEmpty()) return r
-                  } catch (e: Exception) { }
+                  } catch (e: Throwable) { }
                   return search("top trending songs")
               }
 
@@ -244,8 +255,8 @@ jobs:
                               player.play()
                               now.text = "Playing: ${i.name}"
                           }
-                      } catch (e: Exception) {
-                          runOnUiThread { now.text = "Error: ${e.message}" }
+                      } catch (e: Throwable) {
+                          runOnUiThread { now.text = "Error: ${e}" }
                       }
                   }.start()
               }
