@@ -7,10 +7,10 @@ on:
     inputs:
       npe_version:
         description: "NewPipeExtractor version (JitPack tag)"
-        default: "v0.24.2"
+        default: "v0.26.4"
 
 env:
-  NPE_VERSION: ${{ github.event.inputs.npe_version || 'v0.24.2' }}
+  NPE_VERSION: ${{ github.event.inputs.npe_version || 'v0.26.4' }}
 
 jobs:
   build:
@@ -219,7 +219,7 @@ jobs:
                                   r.map { "${it.name}\n${it.uploaderName ?: ""}" })
                           }
                       } catch (e: Throwable) {
-                          runOnUiThread { header.text = "Error: ${e}" }
+                          runOnUiThread { header.text = "Error: ${e.stackTraceToString().take(1200)}" }
                       }
                   }.start()
               }
@@ -256,7 +256,7 @@ jobs:
                               now.text = "Playing: ${i.name}"
                           }
                       } catch (e: Throwable) {
-                          runOnUiThread { now.text = "Error: ${e}" }
+                          runOnUiThread { now.text = "Error: ${e.stackTraceToString().take(1200)}" }
                       }
                   }.start()
               }
