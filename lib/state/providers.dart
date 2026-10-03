@@ -129,7 +129,7 @@ final userPlaylistsProvider =
     NotifierProvider<UserPlaylistsNotifier, List<Playlist>>(UserPlaylistsNotifier.new);
 
 // ---------- player (single global controller) ----------
-enum RepeatMode { off, all, one }
+enum RepeatKind { off, all, one }
 
 class PlayerStatus {
   const PlayerStatus({
@@ -138,7 +138,7 @@ class PlayerStatus {
     this.playing = false,
     this.loading = false,
     this.shuffle = false,
-    this.repeat = RepeatMode.off,
+    this.repeat = RepeatKind.off,
     this.duration = Duration.zero,
     this.history = const [],
     this.error,
@@ -146,7 +146,7 @@ class PlayerStatus {
   final List<Song> queue;
   final int index;
   final bool playing, loading, shuffle;
-  final RepeatMode repeat;
+  final RepeatKind repeat;
   final Duration duration;
   final List<Song> history;
   final String? error;
@@ -159,7 +159,7 @@ class PlayerStatus {
     bool? playing,
     bool? loading,
     bool? shuffle,
-    RepeatMode? repeat,
+    RepeatKind? repeat,
     Duration? duration,
     List<Song>? history,
     String? error,
@@ -263,9 +263,9 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
   }
 
   Future<void> cycleRepeat() async {
-    final next = RepeatMode.values[(state.repeat.index + 1) % 3];
+    final next = RepeatKind.values[(state.repeat.index + 1) % 3];
     await _p.setLoopMode(
-        next == RepeatMode.off ? LoopMode.off : (next == RepeatMode.all ? LoopMode.all : LoopMode.one));
+        next == RepeatKind.off ? LoopMode.off : (next == RepeatKind.all ? LoopMode.all : LoopMode.one));
     state = state.copyWith(repeat: next);
   }
 

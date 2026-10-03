@@ -123,8 +123,8 @@ class NowPlayingScreen extends ConsumerWidget {
                 IconButton(
                   tooltip: 'Repeat ${repeat.name}',
                   icon: Icon(
-                    repeat == RepeatMode.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
-                    color: repeat == RepeatMode.off ? AppColors.textSecondary : AppColors.primary,
+                    repeat == RepeatKind.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
+                    color: repeat == RepeatKind.off ? AppColors.textSecondary : AppColors.primary,
                   ),
                   onPressed: ctl.cycleRepeat,
                 ),
