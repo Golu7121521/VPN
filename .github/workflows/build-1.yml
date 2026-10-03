@@ -1,1032 +1,264 @@
-name: Build Git Action Build APK
+name: Build Music App (NewPipe)
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      npe_version:
+        description: "NewPipeExtractor version (JitPack tag)"
+        default: "v0.24.2"
+
+env:
+  NPE_VERSION: ${{ github.event.inputs.npe_version || 'v0.24.2' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
 
-      - name: Generate project files
+      - name: Generate Android project
         run: |
-          mkdir -p app/src/main/java/com/gitactionbuild app/src/main/res/values app/src/main/res/values-night app/src/main/res/drawable
+          mkdir -p ytapp/app/src/main/java/com/example/musicapp
+          cd ytapp
 
-          cat > settings.gradle.kts <<'EOF'
+          cat > settings.gradle <<'EOF'
           pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
-          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
-          rootProject.name = "GitActionBuild"
-          include(":app")
+          dependencyResolutionManagement {
+            repositories { google(); mavenCentral(); maven { url 'https://jitpack.io' } }
+          }
+          rootProject.name = 'MusicApp'
+          include ':app'
           EOF
 
-          cat > build.gradle.kts <<'EOF'
+          cat > build.gradle <<'EOF'
           plugins {
-              id("com.android.application") version "8.5.2" apply false
-              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+            id 'com.android.application' version '8.5.2' apply false
+            id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
           }
           EOF
 
-          cat > app/build.gradle.kts <<'EOF'
-          plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx3g
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+            id 'com.android.application'
+            id 'org.jetbrains.kotlin.android'
+          }
           android {
-              namespace = "com.gitactionbuild"
-              compileSdk = 34
-              defaultConfig {
-                  applicationId = "com.gitactionbuild"
-                  minSdk = 24; targetSdk = 29; versionCode = 1; versionName = "1.0"
-              }
-              compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-              kotlinOptions { jvmTarget = "17" }
+            namespace 'com.example.musicapp'
+            compileSdk 34
+            defaultConfig {
+              applicationId 'com.example.musicapp'
+              minSdk 24
+              targetSdk 34
+              versionCode 1
+              versionName '1.0'
+            }
+            compileOptions {
+              sourceCompatibility JavaVersion.VERSION_17
+              targetCompatibility JavaVersion.VERSION_17
+              coreLibraryDesugaringEnabled true
+            }
+            kotlinOptions { jvmTarget = '17' }
+            packaging {
+              resources.excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/INDEX.LIST']
+            }
+          }
+          dependencies {
+            implementation 'com.github.TeamNewPipe:NewPipeExtractor:__NPE__'
+            coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+            implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+            implementation 'androidx.media3:media3-exoplayer:1.3.1'
+            implementation 'androidx.appcompat:appcompat:1.7.0'
+            implementation 'androidx.core:core-ktx:1.13.1'
           }
           EOF
-
-          cat > app/src/main/res/drawable/ic_launcher.xml <<'EOF'
-          <vector xmlns:android="http://schemas.android.com/apk/res/android"
-              android:width="108dp" android:height="108dp"
-              android:viewportWidth="108" android:viewportHeight="108">
-              <path android:fillColor="#0D1117" android:pathData="M0,0h108v108h-108z"/>
-              <path android:fillColor="#3B82F6" android:pathData="M54,14 L94,54 L54,94 L14,54 Z"/>
-              <path android:fillColor="#FFFFFF" android:pathData="M48,46 L62,54 L48,62 Z"/>
-          </vector>
-          EOF
+          sed -i "s/__NPE__/$NPE_VERSION/" app/build.gradle
 
           cat > app/src/main/AndroidManifest.xml <<'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.INTERNET"/>
-              <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
-              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-              <application android:label="Git Action Build" android:theme="@style/T"
-                  android:icon="@drawable/ic_launcher" android:roundIcon="@drawable/ic_launcher"
-                  android:requestLegacyExternalStorage="true">
-                  <activity android:name=".MainActivity" android:exported="true"
-                      android:windowSoftInputMode="adjustResize">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN"/>
-                          <category android:name="android.intent.category.LAUNCHER"/>
-                      </intent-filter>
-                  </activity>
-              </application>
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <application android:label="Music Test"
+                android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
+              <activity android:name=".MainActivity" android:exported="true">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+            </application>
           </manifest>
           EOF
 
-          cat > app/src/main/res/values/themes.xml <<'EOF'
-          <resources>
-              <style name="T" parent="android:Theme.DeviceDefault.Light.NoActionBar">
-                  <item name="android:windowLightStatusBar">true</item>
-                  <item name="android:windowLightNavigationBar">true</item>
-                  <item name="android:statusBarColor">@android:color/transparent</item>
-                  <item name="android:navigationBarColor">@android:color/transparent</item>
-                  <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
-              </style>
-          </resources>
-          EOF
+          cat > app/src/main/java/com/example/musicapp/MainActivity.kt <<'EOF'
+          package com.example.musicapp
 
-          cat > app/src/main/res/values-night/themes.xml <<'EOF'
-          <resources>
-              <style name="T" parent="android:Theme.DeviceDefault.NoActionBar">
-                  <item name="android:windowLightStatusBar">false</item>
-                  <item name="android:windowLightNavigationBar">false</item>
-                  <item name="android:statusBarColor">@android:color/transparent</item>
-                  <item name="android:navigationBarColor">@android:color/transparent</item>
-                  <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
-              </style>
-          </resources>
-          EOF
-
-          cat > app/src/main/res/values/colors.xml <<'EOF'
-          <resources>
-              <color name="bg">#F6F7FB</color>
-              <color name="fg">#14161F</color>
-              <color name="p1">#3B82F6</color>
-              <color name="p2">#3B82F6</color>
-              <color name="card">#FFFFFF</color>
-              <color name="stroke">#E1E4EE</color>
-              <color name="muted">#6B7280</color>
-              <color name="kw">#C678DD</color>
-              <color name="st">#98C379</color>
-              <color name="nu">#D19A66</color>
-              <color name="cm">#8B93A5</color>
-              <color name="ty">#E5C07B</color>
-              <color name="fn">#61AFEF</color>
-              <color name="ok">#1A9E5C</color>
-              <color name="bad">#D93025</color>
-              <color name="white">#FFFFFF</color>
-          </resources>
-          EOF
-
-          cat > app/src/main/res/values-night/colors.xml <<'EOF'
-          <resources>
-              <color name="bg">#0E1018</color>
-              <color name="fg">#ECEEF6</color>
-              <color name="p1">#3B82F6</color>
-              <color name="p2">#3B82F6</color>
-              <color name="card">#171A26</color>
-              <color name="stroke">#272B3B</color>
-              <color name="muted">#8B93A8</color>
-              <color name="kw">#C678DD</color>
-              <color name="st">#98C379</color>
-              <color name="nu">#D19A66</color>
-              <color name="cm">#5C6370</color>
-              <color name="ty">#E5C07B</color>
-              <color name="fn">#61AFEF</color>
-              <color name="ok">#4ADE80</color>
-              <color name="bad">#FF6B6B</color>
-              <color name="white">#FFFFFF</color>
-          </resources>
-          EOF
-
-          cat > app/src/main/java/com/gitactionbuild/MainActivity.kt <<'EOF'
-          package com.gitactionbuild
-
-          import android.app.*
-          import android.content.*
-          import android.graphics.*
-          import android.graphics.drawable.GradientDrawable
-          import android.net.Uri
-          import android.os.*
-          import android.provider.OpenableColumns
-          import android.provider.Settings
-          import android.text.*
-          import android.text.style.ForegroundColorSpan
-          import android.util.Base64
-          import android.util.TypedValue
-          import android.view.*
+          import android.os.Bundle
+          import android.view.inputmethod.EditorInfo
           import android.widget.*
-          import org.json.*
-          import java.io.*
-          import java.net.*
-          import java.util.zip.ZipInputStream
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.media3.common.MediaItem
+          import androidx.media3.common.PlaybackException
+          import androidx.media3.common.Player
+          import androidx.media3.datasource.DefaultHttpDataSource
+          import androidx.media3.exoplayer.ExoPlayer
+          import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+          import okhttp3.OkHttpClient
+          import okhttp3.RequestBody.Companion.toRequestBody
+          import org.schabi.newpipe.extractor.NewPipe
+          import org.schabi.newpipe.extractor.ServiceList
+          import org.schabi.newpipe.extractor.downloader.Downloader
+          import org.schabi.newpipe.extractor.downloader.Request
+          import org.schabi.newpipe.extractor.downloader.Response
+          import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+          import org.schabi.newpipe.extractor.stream.DeliveryMethod
+          import org.schabi.newpipe.extractor.stream.StreamInfo
+          import org.schabi.newpipe.extractor.stream.StreamInfoItem
+          import java.util.concurrent.TimeUnit
 
-          class Hl(c: Int) : ForegroundColorSpan(c)
+          const val UA = "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0"
 
-          class CodeView(c: Context) : EditText(c) {
-              val gp = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.MONOSPACE; textAlign = Paint.Align.RIGHT }
-              val lnp = Paint().apply { strokeWidth = 2f }
-              val bgp = Paint().apply { style = Paint.Style.FILL }
-              var gw = 0f; var dg = 0; var gc = 0
-              val d = resources.displayMetrics.density
-              var acc = 1f; var multi = false
-              var lineNo = IntArray(0); var lastL: Layout? = null
-              
-              init { 
-                  setHorizontallyScrolling(true) 
-                  setBackgroundColor(Color.TRANSPARENT)
-                  setPadding(0, dp(8), dp(8), dp(8))
-              }
-
-              fun dp(x: Int) = (x * resources.displayMetrics.density).toInt()
-
-              val sd = ScaleGestureDetector(c, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-                  override fun onScale(s: ScaleGestureDetector): Boolean {
-                      acc *= s.scaleFactor
-                      // Increased threshold to fix lag on low-end devices like Redmi 9 Prime
-                      if (acc > 1.25f || acc < 0.75f) { 
-                          setTextSize(TypedValue.COMPLEX_UNIT_PX, (textSize * acc).coerceIn(8 * d, 40 * d))
-                          acc = 1f; pad(true)
-                      }
-                      return true
+          class DL : Downloader() {
+              private val client = OkHttpClient.Builder().readTimeout(30, TimeUnit.SECONDS).build()
+              override fun execute(request: Request): Response {
+                  val m = request.httpMethod()
+                  var body = request.dataToSend()?.toRequestBody()
+                  if (body == null && (m == "POST" || m == "PUT")) body = ByteArray(0).toRequestBody()
+                  val b = okhttp3.Request.Builder().url(request.url()).method(m, body).header("User-Agent", UA)
+                  request.headers().forEach { (k, v) ->
+                      b.removeHeader(k)
+                      v.forEach { b.addHeader(k, it) }
                   }
-              })
-
-              fun pad(force: Boolean = false) {
-                  val digits = (text.count { it == '\n' } + 1).toString().length.coerceAtLeast(3)
-                  if (!force && digits == dg) return
-                  dg = digits; gp.textSize = textSize * 0.85f
-                  gw = gp.measureText("9".repeat(digits)) + 16 * d
-                  setPadding((gw + 8 * d).toInt(), dp(12), dp(12), dp(12))
-              }
-
-              override fun onDraw(cv: Canvas) {
-                  bgp.color = gc and 0x11FFFFFF // Gutter Background
-                  cv.drawRect(scrollX.toFloat(), 0f, scrollX + gw + 4 * d, height.toFloat() + scrollY.toFloat(), bgp)
-                  
-                  val l = layout
-                  if (l != null) {
-                      if (lastL !== l || lineNo.size != l.lineCount) {
-                          lastL = l; val t = text; val a = IntArray(l.lineCount); var n = 1
-                          for (i in 0 until l.lineCount) { if (i > 0 && t[l.getLineStart(i) - 1] == '\n') n++; a[i] = n }
-                          lineNo = a
-                      }
-                      gp.color = gc; lnp.color = gc and 0x44FFFFFF
-                      val clip = cv.clipBounds; val pt = compoundPaddingTop
-                      val f = l.getLineForVertical((clip.top - pt).coerceAtLeast(0)); val e = l.getLineForVertical((clip.bottom - pt).coerceAtLeast(0))
-                      for (i in f..e) { 
-                          if (i == 0 || text[l.getLineStart(i) - 1] == '\n') {
-                              cv.drawText(lineNo[i].toString(), scrollX + gw - 6 * d, l.getLineBaseline(i) + pt.toFloat(), gp) 
-                          }
-                      }
-                      cv.drawLine(scrollX + gw, clip.top.toFloat(), scrollX + gw, clip.bottom.toFloat(), lnp)
-                  }
-                  super.onDraw(cv)
-              }
-
-              override fun onTouchEvent(e: MotionEvent): Boolean {
-                  sd.onTouchEvent(e)
-                  if (e.actionMasked == MotionEvent.ACTION_DOWN) { multi = false; acc = 1f }
-                  if (e.pointerCount > 1) {
-                      if (!multi) {
-                          multi = true
-                          val c = MotionEvent.obtain(e); c.action = MotionEvent.ACTION_CANCEL; super.onTouchEvent(c); c.recycle()
-                          clearFocus()
-                          val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                          imm.hideSoftInputFromWindow(windowToken, 0)
-                      }
-                      parent?.requestDisallowInterceptTouchEvent(true)
-                      return true
-                  }
-                  if (multi && e.actionMasked == MotionEvent.ACTION_UP) { multi = false; return true }
-                  return super.onTouchEvent(e)
+                  val r = client.newCall(b.build()).execute()
+                  if (r.code == 429) { r.close(); throw ReCaptchaException("Rate limited", request.url()) }
+                  val text = r.body?.string()
+                  return Response(r.code, r.message, r.headers.toMultimap(), text, r.request.url.toString())
               }
           }
 
-          class MainActivity : Activity() {
-              val base = File("/storage/emulated/0/GitActonBuild")
-              val sp by lazy { getSharedPreferences("g", 0) }
-              val tok get() = sp.getString("t", "") ?: ""
-              lateinit var root: LinearLayout
-              val h = Handler(Looper.getMainLooper())
-              var onBack: (() -> Unit)? = null
-              var pickRepo: File? = null; var pickDir: File? = null
-              var live = 0
-              val logMap = HashMap<Long, String>()
-              
-              var lastFind = ""
-              var lastReplace = ""
-              var lastDownloadedPath = ""
+          class MainActivity : AppCompatActivity() {
+              private lateinit var player: ExoPlayer
+              private lateinit var list: ListView
+              private lateinit var header: TextView
+              private lateinit var now: TextView
+              private var items: List<StreamInfoItem> = emptyList()
 
-              val KW = Regex("\\b(class|fun|val|var|def|function|return|if|else|for|while|import|package|public|private|protected|static|void|int|new|true|false|null|const|let|async|await|try|catch|from|in|is|when|override|this|echo|run|break|continue)\\b")
-              val NUM = Regex("\\b\\d+(\\.\\d+)?\\b")
-              val STR = Regex("\"[^\"\\n]*\"|'[^'\\n]*'")
-              val CMT = Regex("//.*|/\\*[\\s\\S]*?\\*/|#.*")
-              val TY = Regex("\\b[A-Z][a-zA-Z0-9_]*\\b") // Types / Classes
-              val FN = Regex("\\b[a-z_][a-zA-Z0-9_]*(?=\\s*\\()") // Functions
-
-              // ---------- helpers ----------
-              fun dp(x: Int) = (x * resources.displayMetrics.density).toInt()
-              fun col(i: Int) = getColor(i)
-              fun ui(f: () -> Unit) = runOnUiThread(f)
-              fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
-              
-              fun bg(f: () -> Unit) = Thread { 
-                  try { f() } catch (e: Exception) { ui { alert("Error Occurred", e.message ?: "Unknown error") } } 
-              }.start()
-              
-              fun lp(w: Int = -2, hh: Int = -2, wt: Float = 0f, m: Int = 0) = LinearLayout.LayoutParams(w, hh, wt).apply { setMargins(dp(m), dp(m), dp(m), dp(m)) }
-              fun box(fill: Int, stroke: Int, r: Int) = GradientDrawable().apply { setColor(fill); setStroke(dp(1), stroke); cornerRadius = dp(r).toFloat() }
-              fun add(l: LinearLayout, v: View) = l.addView(v, lp(-1, -2).apply { bottomMargin = dp(8) })
-
-              fun tv(t: String, s: Int = 14, bold: Boolean = false, c: Int = R.color.fg) = TextView(this).apply {
-                  text = t; textSize = s.toFloat(); setTextColor(col(c))
-                  if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-              }
-              
-              fun btn(t: String, f: () -> Unit) = Button(this).apply {
-                  text = t; isAllCaps = false; textSize = 13f; setTextColor(-1)
-                  minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0; stateListAnimator = null
-                  setPadding(dp(14), dp(8), dp(14), dp(8))
-                  background = GradientDrawable().apply { setColor(Color.parseColor("#3B82F6")); cornerRadius = dp(8).toFloat() }
-                  layoutParams = lp(-2, -2, 0f, 0).apply { setMargins(dp(4), 0, dp(4), 0) }
-                  setOnClickListener { f() }
-              }
-
-              // Editor Compact Button
-              fun smallBtn(t: String, f: () -> Unit) = Button(this).apply {
-                  text = t; isAllCaps = false; textSize = 11f; setTextColor(-1)
-                  minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0; stateListAnimator = null
-                  setPadding(dp(10), dp(5), dp(10), dp(5))
-                  background = GradientDrawable().apply { setColor(Color.parseColor("#3B82F6")); cornerRadius = dp(6).toFloat() }
-                  layoutParams = lp(-2, -2, 0f, 0).apply { setMargins(dp(2), 0, dp(2), 0) }
-                  setOnClickListener { f() }
-              }
-              
-              fun dots(f: () -> Unit) = TextView(this).apply {
-                  text = "\u22EE"; textSize = 22f; setTextColor(col(R.color.muted)); gravity = Gravity.CENTER
-                  setPadding(dp(10), 0, dp(6), 0); setOnClickListener { f() }
-              }
-              
-              fun card() = LinearLayout(this).apply {
-                  gravity = Gravity.CENTER_VERTICAL; background = box(col(R.color.card), col(R.color.stroke), 12)
-                  setPadding(dp(14), dp(12), dp(10), dp(12))
-              }
-              
-              fun bar(vararg v: View) = HorizontalScrollView(this).apply {
-                  isHorizontalScrollBarEnabled = false
-                  addView(LinearLayout(this@MainActivity).apply { v.forEach { addView(it) } })
-              }
-              
-              fun flat(t: String, f: () -> Unit) = TextView(this).apply {
-                  text = t; textSize = 14f; setTextColor(col(R.color.muted)); typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-                  setPadding(dp(14), dp(8), dp(14), dp(8)); setOnClickListener { f() }
-              }
-
-              fun dlg(title: String, v: View?, ok: String?, cancel: String? = "Cancel", wide: Boolean = false, onOk: () -> Unit = {}): Dialog {
-                  val d = Dialog(this); d.requestWindowFeature(Window.FEATURE_NO_TITLE)
-                  val b = LinearLayout(this).apply { 
-                      orientation = LinearLayout.VERTICAL
-                      background = GradientDrawable().apply { setColor(col(R.color.card)); cornerRadius = dp(16).toFloat(); setStroke(dp(1), col(R.color.stroke)) }
-                      setPadding(dp(24), dp(24), dp(24), dp(16)) 
-                  }
-                  b.addView(tv(title, 18, true).apply { setPadding(0, 0, 0, dp(12)) })
-                  if (v != null) b.addView(v, if (wide) lp(-1, 0, 1f) else lp(-1, -2))
-                  val r = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; setPadding(0, dp(16), 0, 0) }
-                  if (cancel != null) r.addView(flat(cancel) { d.dismiss() })
-                  if (ok != null) r.addView(btn(ok) { d.dismiss(); onOk() })
-                  b.addView(r); d.setContentView(b)
-                  d.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0))
-                  d.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-                  val m = resources.displayMetrics
-                  d.window?.setLayout((m.widthPixels * 0.90).toInt(), if (wide) (m.heightPixels * 0.85).toInt() else -2)
-                  d.show(); return d
-              }
-              
-              fun alert(title: String, msg: String) = ui {
-                  dlg(title, tv(msg, 14, false, R.color.muted), "OK", null) {}
-              }
-
-              fun menuDlg(title: String, names: List<String>, pick: (Int) -> Unit) {
-                  var d: Dialog? = null
-                  val v = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(6), 0, dp(6)) }
-                  names.forEachIndexed { i, n -> 
-                      v.addView(tv(n, 15, true).apply { 
-                          setPadding(dp(6), dp(14), dp(6), dp(14))
-                          setOnClickListener { d?.dismiss(); pick(i) } 
-                      }, lp(-1, -2)) 
-                  }
-                  d = dlg(title, v, null, "Close")
-              }
-              
-              fun ask(t: String, init: String = "", f: (String) -> Unit) {
-                  val e = EditText(this).apply {
-                      setText(init); setSingleLine(); setTextColor(col(R.color.fg)); textSize = 15f
-                      setPadding(dp(14), dp(12), dp(14), dp(12)); background = box(col(R.color.bg), col(R.color.stroke), 8); requestFocus()
-                  }
-                  dlg(t, e, "OK") { f(e.text.toString().trim()) }
-              }              
-
-              fun page(t: String, act: View? = null): LinearLayout {
-                  onBack = null; root.removeAllViews(); root.gravity = Gravity.TOP
-                  val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(8), 0, dp(12)) }
-                  top.addView(tv(t, 22, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.START }, lp(0, -2, 1f))
-                  if (act != null) top.addView(act)
-                  root.addView(top)
-                  val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                  root.addView(ScrollView(this).apply { addView(l) }, lp(-1, 0, 1f))
-                  return l
-              }
-              
-              fun center(title: String, msg: String): LinearLayout {
-                  onBack = null; root.removeAllViews(); root.gravity = Gravity.CENTER
-                  val b = LinearLayout(this).apply {
-                      orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
-                      background = box(col(R.color.card), col(R.color.stroke), 16); setPadding(dp(24), dp(30), dp(24), dp(30))
-                  }
-                  b.addView(tv(title, 22, true))
-                  b.addView(tv(msg, 14, false, R.color.muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(12), 0, dp(24)) })
-                  root.addView(b, lp(-1, -2, 0f, 12)); return b
-              }
-
-              // ---------- lifecycle ----------
-              override fun onCreate(b: Bundle?) {
-                  super.onCreate(b)
-                  val night = (resources.configuration.uiMode and 0x30) == 0x20
-                  var fl = 0x100 or 0x400 or 0x200
-                  if (!night) fl = fl or 0x2000 or 0x10
-                  window.decorView.systemUiVisibility = fl
-                  window.statusBarColor = 0; window.navigationBarColor = 0
-                  root = LinearLayout(this).apply {
-                      orientation = LinearLayout.VERTICAL
-                      setBackgroundColor(col(R.color.bg))
-                      setOnApplyWindowInsetsListener { v, i ->
-                          v.setPadding(dp(16), i.systemWindowInsetTop + dp(12), dp(16), i.systemWindowInsetBottom + dp(12)); i
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  NewPipe.init(DL())
+                  val ds = DefaultHttpDataSource.Factory().setUserAgent(UA)
+                  player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(ds)).build()
+                  player.addListener(object : Player.Listener {
+                      override fun onPlayerError(error: PlaybackException) {
+                          now.text = "Play error: ${error.errorCodeName}"
                       }
+                  })
+
+                  val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 48, 24, 24) }
+                  val row = LinearLayout(this)
+                  val input = EditText(this).apply {
+                      hint = "Song search karo"; setSingleLine(); imeOptions = EditorInfo.IME_ACTION_SEARCH
                   }
+                  val go = Button(this).apply { text = "Search" }
+                  row.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
+                  row.addView(go)
+                  header = TextView(this).apply { textSize = 18f; setPadding(0, 16, 0, 8) }
+                  list = ListView(this)
+                  now = TextView(this).apply { text = "Kuch play nahi ho raha"; setPadding(0, 12, 0, 12) }
+                  val pp = Button(this).apply { text = "Pause / Play" }
+                  root.addView(row)
+                  root.addView(header)
+                  root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
+                  root.addView(now)
+                  root.addView(pp)
                   setContentView(root)
-              }
-              override fun onResume() { super.onResume(); if (root.childCount == 0 || !granted()) start() }
-              override fun onBackPressed() { val b = onBack; if (b != null) b() else super.onBackPressed() }
-              override fun onRequestPermissionsResult(c: Int, p: Array<String>, g: IntArray) { start() }
 
-              fun granted() = if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager()
-                  else checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE") == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-              fun start() {
-                  if (!granted()) {
-                      val b = center("Storage access", "Git Action Build needs storage access to create and manage the GitActonBuild folder on your device.")
-                      b.addView(btn("Allow access") {
-                          if (Build.VERSION.SDK_INT >= 30) startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
-                          else requestPermissions(arrayOf("android.permission.WRITE_EXTERNAL_STORAGE", "android.permission.READ_EXTERNAL_STORAGE"), 1)
-                      })
-                  } else { base.mkdirs(); if (tok.isEmpty()) tokenScreen() else repos() }
-              }
-
-              fun tokenScreen() {
-                  val b = center("GitHub token", "Paste a personal access token with repo and workflow scopes.")
-                  val e = EditText(this).apply {
-                      hint = "Personal access token"; setSingleLine(); setTextColor(col(R.color.fg)); setHintTextColor(col(R.color.muted))
-                      textSize = 15f; setPadding(dp(14), dp(12), dp(14), dp(12)); background = box(col(R.color.bg), col(R.color.stroke), 8)
+                  list.setOnItemClickListener { _, _, pos, _ -> play(items[pos]) }
+                  go.setOnClickListener {
+                      val q = input.text.toString().trim()
+                      if (q.isNotEmpty()) load("Results: $q") { search(q) }
                   }
-                  b.addView(e, lp(-1, -2).apply { bottomMargin = dp(16) })
-                  b.addView(btn("Continue") { sp.edit().putString("t", e.text.toString().trim()).apply(); repos() })
+                  input.setOnEditorActionListener { _, _, _ -> go.performClick(); true }
+                  pp.setOnClickListener { if (player.isPlaying) player.pause() else player.play() }
+
+                  load("Trending") { trending() }
               }
 
-              // ---------- repositories ----------
-              fun repos() {
-                  val l = page("Repositories", btn("Token") { tokenScreen() })
-                  val wait = tv("Loading repositories...", 14, false, R.color.muted); l.addView(wait)
-                  bg {
-                      val a = JSONArray(api("GET", "/user/repos?per_page=100&sort=updated"))
-                      ui {
-                          l.removeView(wait)
-                          for (i in 0 until a.length()) {
-                              val j = a.getJSONObject(i); val name = j.getString("name"); val dir = File(base, name)
-                              val c = card(); val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                              info.addView(tv(name, 17, true))
-                              info.addView(tv((if (j.getBoolean("private")) "Private" else "Public") + "  |  " + j.getString("default_branch"), 13, false, R.color.muted))
-                              c.addView(info, lp(0, -2, 1f))
-                              var b: Button? = null
-                              b = if (dir.exists()) btn("Open") { browse(dir, dir) } else btn("Clone") {
-                                  b?.text = "Cloning..."; b?.isEnabled = false
-                                  bg {
-                                      try {
-                                          unzip(http("GET", "/repos/" + j.getString("full_name") + "/zipball").inputStream, dir)
-                                          File(dir, ".gab").writeText(j.getString("full_name") + "\n" + j.getString("default_branch"))
-                                          ui { browse(dir, dir) }
-                                      } catch (e: Exception) { dir.deleteRecursively(); ui { repos(); toast("Clone failed") } }
-                                  }
-                              }
-                              c.addView(b); add(l, c)
-                          }
-                      }
-                  }
-              }
-
-              // ---------- file manager ----------
-              fun sz(f: File) = if (f.isDirectory) (f.listFiles()?.size ?: 0).toString() + " items" else if (f.length() < 1024) f.length().toString() + " B" else (f.length() / 1024).toString() + " KB"
-
-              fun browse(repo: File, dir: File) {
-                  val rel = dir.relativeTo(repo).path
-                  val l = page(repo.name + (if (rel.isEmpty()) "" else "/$rel"), btn("Repos") { repos() })
-                  onBack = { if (dir != repo) browse(repo, dir.parentFile!!) else repos() }
-                  l.addView(bar(
-                      btn("New file") { ask("File name") { 
-                          if (it.isNotEmpty()) { 
-                              val f = File(dir, it)
-                              f.parentFile?.mkdirs()
-                              f.createNewFile()
-                              edit(repo, f.parentFile!!, f) 
-                          } 
-                      } },
-                      btn("New folder") { ask("Folder name") { 
-                          if (it.isNotEmpty()) { 
-                              val f = File(dir, it)
-                              f.mkdirs()
-                              browse(repo, f) 
-                          } 
-                      } },
-                      btn("Import") { pickRepo = repo; pickDir = dir; importFile() },
-                      btn("Search") { ask("Search files") { if (it.isNotEmpty()) search(repo, it) } },
-                      btn("Push all") {
-                          dlg("Push all", tv("All existing files in the GitHub repository will be deleted first, then every local file will be pushed. Continue?", 15, false, R.color.muted), "Push") { pushAll(repo) }
-                      }), lp(-1, -2).apply { bottomMargin = dp(12) })
-                  if (dir != repo) {
-                      val c = card().apply { setOnClickListener { browse(repo, dir.parentFile!!) } }
-                      c.addView(tv("..  Parent folder", 15, true, R.color.muted)); add(l, c)
-                  }
-                  dir.listFiles()!!.filter { !it.name.startsWith(".gab") }
-                      .sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() })).forEach { f ->
-                          val c = card().apply { setOnClickListener { if (f.isDirectory) browse(repo, f) else edit(repo, dir, f) } }
-                          val ext = if (f.isDirectory) "DIR" else f.extension.uppercase().take(4).ifEmpty { "FILE" }
-                          c.addView(tv(ext, 11, true, if (f.isDirectory) R.color.white else R.color.fg).apply {
-                              gravity = Gravity.CENTER; background = box(if (f.isDirectory) col(R.color.p1) else col(R.color.stroke), 0, 8)
-                          }, lp(dp(44), dp(36)).apply { rightMargin = dp(14) })
-                          val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                          info.addView(tv(f.name, 15, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.MIDDLE })
-                          info.addView(tv(sz(f), 12, false, R.color.muted))
-                          c.addView(info, lp(0, -2, 1f)); c.addView(dots { menu(repo, dir, f) }); add(l, c)
-                      }
-              }
-
-              fun menu(repo: File, dir: File, f: File) {
-                  menuDlg(f.name, listOf("Rename", "Delete", "Push this file", "Export to device")) { w ->
-                      when (w) {
-                          0 -> ask("New name", f.name) { if (it.isNotEmpty()) { f.renameTo(File(dir, it)); browse(repo, dir) } }
-                          1 -> dlg("Delete", tv("Delete " + f.name + "? This cannot be undone.", 15, false, R.color.muted), "Delete") { f.deleteRecursively(); browse(repo, dir) }
-                          2 -> if (f.isFile) pushOne(repo, f) else toast("Use Push all for folders")
-                          3 -> bg { 
-                              val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
-                              val nm = if (f.isFile && f.extension.isNotEmpty()) f.nameWithoutExtension + "_" + stamp + "." + f.extension else f.name + "_" + stamp
-                              val o = File(base, "Exports/" + nm)
-                              o.parentFile?.mkdirs()
-                              f.copyRecursively(o, true)
-                              ui { toast("Exported to " + o.path) } 
-                          }
-                      }
-                  }
-              }
-
-              fun importFile() {
-                  startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true), 7)
-              }
-              override fun onActivityResult(rq: Int, rc: Int, d: Intent?) {
-                  super.onActivityResult(rq, rc, d)
-                  if (rq != 7 || rc != RESULT_OK || d == null) return
-                  val uris = ArrayList<Uri>()
-                  val cd = d.clipData
-                  if (cd != null) { for (i in 0 until cd.itemCount) uris.add(cd.getItemAt(i).uri) } else d.data?.let { uris.add(it) }
-                  bg {
-                      for (u in uris) {
-                          var n = "imported_" + System.currentTimeMillis()
-                          contentResolver.query(u, null, null, null, null)?.use { c ->
-                              if (c.moveToFirst()) { val ix = c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if (ix >= 0) n = c.getString(ix) }
-                          }
-                          contentResolver.openInputStream(u)?.use { i -> File(pickDir, n).outputStream().use { i.copyTo(it) } }
-                      }
-                      ui { toast("Imported " + uris.size + " file(s)"); browse(pickRepo!!, pickDir!!) }
-                  }
-              }
-
-              fun search(repo: File, q: String) {
-                  val l = page("Search: $q", btn("Back") { browse(repo, repo) })
-                  onBack = { browse(repo, repo) }
-                  l.addView(tv("Searching...", 14, false, R.color.muted))
-                  bg {
-                      val res = ArrayList<Pair<File, String>>()
-                      for (f in files(repo)) {
-                          if (f.relativeTo(repo).path.contains(q, true)) res.add(f to "File name match")
-                          else if (f.length() < 300000) {
-                              val ln = try { f.readLines().indexOfFirst { it.contains(q, true) } } catch (e: Exception) { -1 }
-                              if (ln >= 0) res.add(f to "Line " + (ln + 1))
-                          }
-                          if (res.size >= 100) break
-                      }
-                      ui {
-                          l.removeAllViews()
-                          if (res.isEmpty()) l.addView(tv("No results found", 14, false, R.color.muted))
-                          for ((f, why) in res) {
-                              val c = card().apply { setOnClickListener { edit(repo, f.parentFile!!, f) } }
-                              val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                              info.addView(tv(f.relativeTo(repo).path, 15, true)); info.addView(tv(why, 12, false, R.color.muted))
-                              c.addView(info); add(l, c)
-                          }
-                      }
-                  }
-              }
-
-              // ---------- code editor ----------
-              fun hl(e: Editable) {
-                  for (s in e.getSpans(0, e.length, Hl::class.java)) e.removeSpan(s)
-                  if (e.length > 200000) return
-                  val t = e.toString()
-                  fun mark(r: Regex, c: Int) { for (m in r.findAll(t)) e.setSpan(Hl(c), m.range.first, m.range.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
-                  
-                  mark(FN, col(R.color.fn))
-                  mark(TY, col(R.color.ty))
-                  mark(KW, col(R.color.kw))
-                  mark(NUM, col(R.color.nu))
-                  mark(STR, col(R.color.st))
-                  mark(CMT, col(R.color.cm))
-              }
-
-              fun edit(repo: File, dir: File, f: File) {
-                  if (f.length() > 400000) { alert("Error", "File is too large to edit"); return }
-                  var last = f.readText(); var silent = false
-                  val undo = ArrayList<String>(); val redo = ArrayList<String>()
-                  
-                  val cv = CodeView(this).apply {
-                      setText(last); typeface = Typeface.MONOSPACE; setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                      setTextColor(col(R.color.fg)); gravity = Gravity.TOP; gc = col(R.color.muted)
-                      inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-                      minLines = 20; pad(true)
-                      layoutParams = FrameLayout.LayoutParams(-2, -2)
-                  }
-                  hl(cv.text)
-                  val commit = Runnable {
-                      val cur = cv.text.toString()
-                      if (cur != last) { undo.add(last); if (undo.size > 200) undo.removeAt(0); last = cur; redo.clear() }
-                      hl(cv.text)
-                  }
-                  cv.addTextChangedListener(object : TextWatcher {
-                      override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                      override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                      override fun afterTextChanged(s: Editable?) { if (!silent) { h.removeCallbacks(commit); h.postDelayed(commit, 500) }; cv.pad() }
-                  })
-                  fun flush() { h.removeCallbacks(commit); commit.run() }
-                  fun put(s: String) { silent = true; cv.setText(s); silent = false; last = s; hl(cv.text); cv.pad(true) }
-                  fun save() { f.writeText(cv.text.toString()); toast("Saved") }
-
-                  root.removeAllViews(); root.gravity = Gravity.TOP
-                  onBack = { flush(); browse(repo, dir) }
-                  
-                  val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(12)) }
-                  val title = tv(f.name, 15, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.MIDDLE; setPadding(0, 0, dp(8), 0) }
-                  top.addView(title, lp(0, -2, 1f))
-                  
-                  val frame = FrameLayout(this).apply { layoutParams = lp(-1, 0, 1f) }
-                  
-                  // Floating Search Box (70% Transparent)
-                  val searchBox = LinearLayout(this).apply {
-                      orientation = LinearLayout.VERTICAL
-                      background = box(col(R.color.card), col(R.color.stroke), 12).apply { alpha = 180 }
-                      setPadding(dp(12), dp(12), dp(12), dp(12))
-                      layoutParams = FrameLayout.LayoutParams(-1, -2).apply { gravity = Gravity.TOP; setMargins(dp(10), dp(10), dp(10), dp(10)) }
-                      visibility = View.GONE
-                      elevation = dp(4).toFloat()
-                  }
-                  
-                  val fInput = EditText(this).apply { 
-                      hint = "Find..."; setText(lastFind); textSize = 13f; setTextColor(col(R.color.fg)); 
-                      background = box(col(R.color.bg), col(R.color.stroke), 6).apply { alpha = 180 }
-                      setPadding(dp(10), dp(10), dp(10), dp(10)); layoutParams = lp(-1, -2).apply { bottomMargin = dp(6) }
-                      addTextChangedListener(object: TextWatcher {
-                          override fun afterTextChanged(s: Editable?) { lastFind = s?.toString() ?: "" }
-                          override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                          override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                      })
-                  }
-                  
-                  val rInput = EditText(this).apply { 
-                      hint = "Replace with..."; setText(lastReplace); textSize = 13f; setTextColor(col(R.color.fg)); 
-                      background = box(col(R.color.bg), col(R.color.stroke), 6).apply { alpha = 180 }
-                      setPadding(dp(10), dp(10), dp(10), dp(10)); layoutParams = lp(-1, -2).apply { bottomMargin = dp(10) }
-                      addTextChangedListener(object: TextWatcher {
-                          override fun afterTextChanged(s: Editable?) { lastReplace = s?.toString() ?: "" }
-                          override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                          override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                      })
-                  }
-                  searchBox.addView(fInput); searchBox.addView(rInput)
-                  
-                  var idx = 0
-                  val sBtnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
-                  sBtnRow.addView(smallBtn("Next") {
-                      val q = lastFind
-                      if (q.isNotEmpty()) {
-                          val txt = cv.text.toString()
-                          idx = txt.indexOf(q, idx, ignoreCase = true)
-                          if (idx >= 0) {
-                              cv.setSelection(idx, idx + q.length)
-                              cv.requestFocus()
-                              idx += q.length
-                          } else {
-                              idx = 0; toast("No more matches")
-                          }
-                      }
-                  })
-                  sBtnRow.addView(smallBtn("Replace") {
-                      if (cv.selectionEnd > cv.selectionStart) {
-                          cv.text.replace(cv.selectionStart, cv.selectionEnd, lastReplace)
-                          hl(cv.text)
-                      }
-                  })
-                  sBtnRow.addView(smallBtn("All") {
-                      if (lastFind.isNotEmpty()) {
-                          val nt = cv.text.toString().replace(lastFind, lastReplace, ignoreCase = true)
-                          cv.setText(nt)
-                          hl(cv.text)
-                          toast("Replaced all matches")
-                      }
-                  })
-                  sBtnRow.addView(smallBtn("Close") { searchBox.visibility = View.GONE })
-                  searchBox.addView(sBtnRow)
-                  
-                  val actBar = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
-                  val actRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-                  actRow.addView(smallBtn("Save") { save() })
-                  actRow.addView(smallBtn("Search") { searchBox.visibility = if (searchBox.visibility == View.VISIBLE) View.GONE else View.VISIBLE })
-                  actRow.addView(smallBtn("Undo") { flush(); if (undo.isNotEmpty()) { redo.add(last); put(undo.removeAt(undo.size - 1)) } })
-                  actRow.addView(smallBtn("Redo") { flush(); if (redo.isNotEmpty()) { undo.add(last); put(redo.removeAt(redo.size - 1)) } })
-                  actRow.addView(smallBtn("Push") { save(); pushOne(repo, f) })
-                  actBar.addView(actRow)
-                  top.addView(actBar)
-                  root.addView(top)
-                  
-                  val hsv = HorizontalScrollView(this).apply { isFillViewport = true; addView(cv) }
-                  val vsv = ScrollView(this).apply { isFillViewport = true; addView(hsv) }
-                  frame.addView(vsv, FrameLayout.LayoutParams(-1, -1))
-                  frame.addView(searchBox)
-                  root.addView(frame)
-              }
-
-              // ---------- GitHub API ----------
-              fun http(m: String, u: String, body: String? = null): HttpURLConnection {
-                  val c = URL(if (u.startsWith("http")) u else "https://api.github.com$u").openConnection() as HttpURLConnection
-                  c.requestMethod = m
-                  c.setRequestProperty("Authorization", "Bearer $tok")
-                  c.setRequestProperty("Accept", "application/vnd.github+json")
-                  if (body != null) { c.doOutput = true; c.outputStream.use { it.write(body.toByteArray()) } }
-                  if (c.responseCode >= 400) throw Exception(c.responseCode.toString() + " " + c.errorStream?.bufferedReader()?.readText())
-                  return c
-              }
-              fun api(m: String, u: String, body: String? = null) = http(m, u, body).inputStream.bufferedReader().readText()
-              
-              fun meta(repo: File): List<String> {
-                  val m = File(repo, ".gab")
-                  if (!m.exists()) {
-                      val a = JSONArray(api("GET", "/user/repos?per_page=100"))
-                      var found = false
-                      for (i in 0 until a.length()) { 
-                          val j = a.getJSONObject(i)
-                          if (j.getString("name").equals(repo.name, ignoreCase = true)) { 
-                              m.writeText(j.getString("full_name") + "\n" + j.getString("default_branch"))
-                              found = true
-                              break 
-                          } 
-                      }
-                      if (!found) throw Exception("Repository not found on GitHub. Push feature requires a valid connected repository.")
-                  }
-                  return m.readLines()
-              }
-              
-              fun files(repo: File) = repo.walkTopDown().filter { it.isFile && !it.relativeTo(repo).path.let { p -> p.startsWith(".gab") || p.startsWith(".git/") } }.toList()
-
-              fun unzip(i: InputStream, out: File) {
-                  ZipInputStream(i).use { z ->
-                      var e = z.nextEntry
-                      while (e != null) {
-                          val n = e.name.substringAfter('/')
-                          if (n.isNotEmpty()) {
-                              val f = File(out, n)
-                              if (e.isDirectory) f.mkdirs() else { f.parentFile?.mkdirs(); f.outputStream().use { z.copyTo(it) } }
-                          }
-                          e = z.nextEntry
-                      }
-                  }
-              }
-
-              fun pushOne(repo: File, f: File) {
-                  val l = page("Pushing...", btn("Cancel") { live++; browse(repo, repo) })
-                  val w = card(); w.addView(ProgressBar(this).apply { isIndeterminate = true; layoutParams = lp(dp(16), dp(16)).apply { rightMargin = dp(10) } })
-                  w.addView(tv("Uploading file to GitHub...", 14, false, R.color.muted)); add(l, w)
-                  
-                  bg {
+              private fun load(title: String, task: () -> List<StreamInfoItem>) {
+                  header.text = "$title ..."
+                  Thread {
                       try {
-                          val (full, br) = meta(repo); val p = f.relativeTo(repo).path.replace(" ", "%20")
-                          val sha = try { JSONObject(api("GET", "/repos/$full/contents/$p?ref=$br")).getString("sha") } catch (e: Exception) { null }
-                          val j = JSONObject().put("message", "Update $p").put("branch", br).put("content", Base64.encodeToString(f.readBytes(), Base64.NO_WRAP))
-                          if (sha != null) j.put("sha", sha)
-                          val c = JSONObject(api("PUT", "/repos/$full/contents/$p", j.toString())).getJSONObject("commit").getString("sha")
-                          ui { watch(full, c, repo) }
-                      } catch(e: Exception) {
-                          ui { alert("Push Failed", e.message ?: "Unknown error"); browse(repo, repo) }
+                          val r = task()
+                          runOnUiThread {
+                              items = r
+                              header.text = title
+                              list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1,
+                                  r.map { "${it.name}\n${it.uploaderName ?: ""}" })
+                          }
+                      } catch (e: Exception) {
+                          runOnUiThread { header.text = "Error: ${e.message}" }
                       }
-                  }
+                  }.start()
               }
 
-              fun pushAll(repo: File) {
-                  val l = page("Pushing...", btn("Cancel") { live++; browse(repo, repo) })
-                  val w = card(); w.addView(ProgressBar(this).apply { isIndeterminate = true; layoutParams = lp(dp(16), dp(16)).apply { rightMargin = dp(10) } })
-                  w.addView(tv("Uploading all files to GitHub...", 14, false, R.color.muted)); add(l, w)
-                  
-                  bg {
+              private fun search(q: String): List<StreamInfoItem> {
+                  val ex = ServiceList.YouTube.getSearchExtractor(q)
+                  ex.fetchPage()
+                  return ex.initialPage.items.filterIsInstance<StreamInfoItem>()
+              }
+
+              private fun trending(): List<StreamInfoItem> {
+                  try {
+                      val ex = ServiceList.YouTube.kioskList.defaultKioskExtractor
+                      ex.fetchPage()
+                      val r = ex.initialPage.items.filterIsInstance<StreamInfoItem>()
+                      if (r.isNotEmpty()) return r
+                  } catch (e: Exception) { }
+                  return search("top trending songs")
+              }
+
+              private fun play(i: StreamInfoItem) {
+                  now.text = "Loading: ${i.name}"
+                  Thread {
                       try {
-                          val (full, br) = meta(repo)
-                          val head = JSONObject(api("GET", "/repos/$full/git/ref/heads/$br")).getJSONObject("object").getString("sha")
-                          val tree = JSONArray()
-                          for (f in files(repo)) {
-                              val b = JSONObject(api("POST", "/repos/$full/git/blobs", JSONObject()
-                                  .put("content", Base64.encodeToString(f.readBytes(), Base64.NO_WRAP)).put("encoding", "base64").toString())).getString("sha")
-                              tree.put(JSONObject().put("path", f.relativeTo(repo).path).put("mode", "100644").put("type", "blob").put("sha", b))
+                          val info = StreamInfo.getInfo(ServiceList.YouTube, i.url)
+                          val a = info.audioStreams
+                              .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+                              .maxByOrNull { it.averageBitrate }
+                              ?: throw Exception("Audio stream nahi mila")
+                          runOnUiThread {
+                              player.setMediaItem(MediaItem.fromUri(a.content))
+                              player.prepare()
+                              player.play()
+                              now.text = "Playing: ${i.name}"
                           }
-                          val t = JSONObject(api("POST", "/repos/$full/git/trees", JSONObject().put("tree", tree).toString())).getString("sha")
-                          val c = JSONObject(api("POST", "/repos/$full/git/commits", JSONObject().put("message", "Push all from Git Action Build")
-                              .put("tree", t).put("parents", JSONArray().put(head)).toString())).getString("sha")
-                          api("PATCH", "/repos/$full/git/refs/heads/$br", JSONObject().put("sha", c).put("force", true).toString())
-                          ui { watch(full, c, repo) }
-                      } catch(e: Exception) {
-                          ui { alert("Push Failed", e.message ?: "Unknown error"); browse(repo, repo) }
+                      } catch (e: Exception) {
+                          runOnUiThread { now.text = "Error: ${e.message}" }
                       }
-                  }
+                  }.start()
               }
 
-              // ---------- GitHub Web Actions Monitor UI ----------
-              fun tail(t: String): String {
-                  val ansi = Regex("\u001B\\[[0-9;]*m"); val ts = Regex("^\\uFEFF?\\d{4}-\\d\\d-\\d\\dT[\\d:.]+Z ")
-                  return t.lines().map { ts.replace(ansi.replace(it, ""), "") }.takeLast(80).joinToString("\n")
-              }
-
-              fun draw(l: LinearLayout, r: JSONObject, js: JSONArray, artifactState: Int) {
-                  val sv = l.parent as? ScrollView; val y = sv?.scrollY ?: 0
-                  l.removeAllViews()
-                  
-                  for (k in 0 until js.length()) {
-                      val j = js.getJSONObject(k)
-                      val id = j.getLong("id")
-                      val steps = j.optJSONArray("steps")
-                      
-                      if (steps != null) {
-                          for (q in 0 until steps.length()) {
-                              val st = steps.getJSONObject(q)
-                              val stStatus = st.getString("status")
-                              val stConcl = st.optString("conclusion")
-                              
-                              val isRunning = stStatus == "in_progress"
-                              val isFailed = stConcl == "failure"
-                              val isCompleted = stStatus == "completed"
-                              
-                              val stepBox = LinearLayout(this).apply {
-                                  orientation = LinearLayout.VERTICAL
-                                  background = box(col(R.color.card), col(R.color.stroke), 12)
-                                  layoutParams = lp(-1, -2).apply { setMargins(dp(2), dp(6), dp(2), dp(6)) }
-                                  clipToOutline = true
-                              }
-
-                              val stepRow = LinearLayout(this).apply {
-                                  gravity = Gravity.CENTER_VERTICAL
-                                  setPadding(dp(16), dp(14), dp(16), dp(14))
-                              }
-                              
-                              if (isRunning) {
-                                  stepRow.addView(ProgressBar(this).apply { 
-                                      isIndeterminate = true
-                                      layoutParams = lp(dp(16), dp(16)).apply { rightMargin = dp(12) }
-                                  })
-                              } else if (isCompleted) {
-                                  val icon = if (stConcl == "success" || stConcl == "skipped") "✓" else "✗"
-                                  val colId = if (stConcl == "success" || stConcl == "skipped") R.color.ok else R.color.bad
-                                  stepRow.addView(tv(icon, 16, true, colId).apply { setPadding(0, 0, dp(12), 0) })
-                              } else {
-                                  stepRow.addView(tv("○", 16, true, R.color.muted).apply { setPadding(0, 0, dp(12), 0) })
-                              }
-                              
-                              val nameColor = if (isRunning || isFailed) R.color.fg else R.color.muted
-                              stepRow.addView(tv(st.getString("name"), 14, isRunning, nameColor).apply { setSingleLine() }, lp(0, -2, 1f))
-                              
-                              if (isCompleted) {
-                                  val txt = when(stConcl) { "success" -> "Completed"; "failure" -> "Failed"; "skipped" -> "Skipped"; else -> stConcl }
-                                  val txtCol = when(stConcl) { "success" -> R.color.ok; "failure" -> R.color.bad; else -> R.color.muted }
-                                  stepRow.addView(tv(txt, 13, true, txtCol))
-                              }
-
-                              stepBox.addView(stepRow)
-                              
-                              if (isRunning || isFailed) {
-                                  val lg = logMap[id]
-                                  if (!lg.isNullOrEmpty()) {
-                                      stepBox.addView(View(this).apply { setBackgroundColor(col(R.color.stroke)); layoutParams = lp(-1, dp(1)) })
-                                      stepBox.addView(tv(lg, 11).apply {
-                                          typeface = Typeface.MONOSPACE
-                                          setTextColor(col(R.color.fg))
-                                          setBackgroundColor(col(R.color.bg))
-                                          setPadding(dp(16), dp(12), dp(16), dp(16))
-                                          setHorizontallyScrolling(true)
-                                      })
-                                  }
-                              }
-                              l.addView(stepBox)
-                          }
-                      }
-                  }
-                  
-                  if (artifactState > 0) {
-                      val stepBox = LinearLayout(this).apply {
-                          orientation = LinearLayout.VERTICAL
-                          background = box(col(R.color.card), col(R.color.stroke), 12)
-                          layoutParams = lp(-1, -2).apply { setMargins(dp(2), dp(6), dp(2), dp(6)) }
-                      }
-                      val stepRow = LinearLayout(this).apply {
-                          gravity = Gravity.CENTER_VERTICAL
-                          setPadding(dp(16), dp(14), dp(16), dp(14))
-                      }
-                      
-                      val isRunning = artifactState == 1
-                      if (isRunning) {
-                          stepRow.addView(ProgressBar(this).apply { 
-                              isIndeterminate = true
-                              layoutParams = lp(dp(16), dp(16)).apply { rightMargin = dp(12) }
-                          })
-                      } else {
-                          val icon = if (artifactState == 2) "✓" else "✗"
-                          val colId = if (artifactState == 2) R.color.ok else R.color.bad
-                          stepRow.addView(tv(icon, 16, true, colId).apply { setPadding(0, 0, dp(12), 0) })
-                      }
-                      
-                      stepRow.addView(tv("Download Artifacts", 14, isRunning, if(isRunning) R.color.fg else R.color.muted).apply { setSingleLine() }, lp(0, -2, 1f))
-                      
-                      if (!isRunning) {
-                          val txt = if (artifactState == 2) "Completed" else "Failed"
-                          val txtCol = if (artifactState == 2) R.color.ok else R.color.bad
-                          stepRow.addView(tv(txt, 13, true, txtCol))
-                      }
-                      stepBox.addView(stepRow)
-                      
-                      if (artifactState == 2 && lastDownloadedPath.isNotEmpty()) {
-                          stepBox.addView(View(this).apply { setBackgroundColor(col(R.color.stroke)); layoutParams = lp(-1, dp(1)) })
-                          stepBox.addView(tv("Saved at: $lastDownloadedPath", 11, true, R.color.ok).apply {
-                              typeface = Typeface.MONOSPACE
-                              setPadding(dp(16), dp(12), dp(16), dp(12))
-                              setHorizontallyScrolling(true)
-                          })
-                      }
-                      
-                      l.addView(stepBox)
-                  }
-                  
-                  sv?.post { sv.scrollTo(0, y) }
-              }
-
-              fun watch(full: String, sha: String, repo: File) {
-                  val my = ++live; logMap.clear()
-                  var artifactState = 0
-                  
-                  val l = page("Build Process", btn("Close") { live++; browse(repo, repo) })
-                  onBack = { live++; browse(repo, repo) }
-                  
-                  val w = card(); w.addView(ProgressBar(this).apply { isIndeterminate = true; layoutParams = lp(dp(16), dp(16)).apply { rightMargin = dp(10) } })
-                  w.addView(tv("Triggering GitHub Action workflow...", 14, false, R.color.muted)); add(l, w)
-                  
-                  bg {
-                      for (i in 0 until 600) {
-                          if (my != live) return@bg
-                          Thread.sleep(3000)
-                          val rs = try { JSONObject(api("GET", "/repos/$full/actions/runs?head_sha=$sha")).getJSONArray("workflow_runs") } catch(e: Exception) { continue }
-                          if (rs.length() == 0) continue
-                          val r = rs.getJSONObject(0)
-                          val js = try { JSONObject(api("GET", r.getString("url") + "/jobs")).getJSONArray("jobs") } catch(e: Exception) { continue }
-                          
-                          for (k in 0 until js.length()) {
-                              val j = js.getJSONObject(k)
-                              if ((j.getString("status") == "in_progress" || (j.getString("status") == "completed" && j.optString("conclusion") == "failure")) && j.getString("status") != "queued") {
-                                  try { logMap[j.getLong("id")] = tail(String(http("GET", "/repos/$full/actions/jobs/" + j.getLong("id") + "/logs").inputStream.readBytes())) } catch (e: Exception) { }
-                              }
-                          }
-                          
-                          val done = r.getString("status") == "completed"
-                          val success = r.optString("conclusion") == "success"
-                          
-                          if (done && success && artifactState == 0) artifactState = 1
-                          
-                          ui { if (my == live) { if(w.parent == l) l.removeView(w); draw(l, r, js, artifactState) } }
-                          
-                          if (done) {
-                              if (success) {
-                                  try {
-                                      download(r)
-                                      artifactState = 2
-                                  } catch (e: Exception) {
-                                      artifactState = 3
-                                  }
-                                  ui { if (my == live) draw(l, r, js, artifactState) }
-                              } else {
-                                  ui { add(l, btn("View raw logs") { logs(r.getString("url")) }) }
-                              }
-                              return@bg
-                          }
-                      }
-                  }
-              }
-
-              fun download(r: JSONObject) {
-                  val a = JSONObject(api("GET", r.getString("url") + "/artifacts")).getJSONArray("artifacts")
-                  if (a.length() == 0) return
-                  val x = a.getJSONObject(0)
-                  val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
-                  
-                  val out = File(base, "artifacts/" + x.getString("name") + "_run" + r.optInt("run_number") + "_" + stamp + ".zip")
-                  out.parentFile?.mkdirs()
-                  
-                  http("GET", x.getString("archive_download_url")).inputStream.use { i -> out.outputStream().use { i.copyTo(it) } }
-                  lastDownloadedPath = out.absolutePath
-                  ui { toast("Artifact downloaded successfully") }
-              }
-
-              fun logs(u: String) {
-                  val ld = dlg("Loading...", ProgressBar(this).apply { isIndeterminate = true; setPadding(dp(20), dp(20), dp(20), dp(20)) }, null, null)
-                  bg {
-                      val sb = StringBuilder()
-                      try {
-                          ZipInputStream(http("GET", "$u/logs").inputStream).use { z ->
-                              var e = z.nextEntry
-                              while (e != null) {
-                                  if (!e.isDirectory) sb.append("=== ").append(e.name).append(" ===\n").append(String(z.readBytes())).append("\n")
-                                  e = z.nextEntry
-                              }
-                          }
-                      } catch (e: Exception) {}
-                      ui {
-                          ld.dismiss()
-                          val t = TextView(this@MainActivity).apply { text = sb; textSize = 11f; setTextIsSelectable(true); typeface = Typeface.MONOSPACE; setTextColor(col(R.color.fg)); setPadding(dp(16), dp(12), dp(16), dp(12)) }
-                          dlg("Raw logs", ScrollView(this@MainActivity).apply { addView(t) }, "Copy all", "Close", true) { (getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("log", sb)); toast("Copied") }
-                      }
-                  }
-              }
+              override fun onDestroy() { player.release(); super.onDestroy() }
           }
           EOF
 
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+        working-directory: ytapp
+        run: gradle assembleDebug --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
-          name: GitActionBuild-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: music-app-debug-apk
+          path: ytapp/app/build/outputs/apk/debug/*.apk
