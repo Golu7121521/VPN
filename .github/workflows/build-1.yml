@@ -206,13 +206,18 @@ jobs:
           cat > app/src/main/java/com/example/musicapp/MainActivity.kt <<'EOF'
           package com.example.musicapp
 
+          import android.content.res.ColorStateList
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
           import android.os.Bundle
           import android.os.Handler
           import android.os.Looper
+          import android.text.TextUtils
           import android.view.Gravity
           import android.view.View
           import android.view.ViewGroup
           import android.view.inputmethod.EditorInfo
+          import android.view.inputmethod.InputMethodManager
           import android.widget.*
           import androidx.appcompat.app.AppCompatActivity
           import androidx.media3.common.MediaItem
@@ -225,6 +230,8 @@ jobs:
           import coil.load
           import okhttp3.OkHttpClient
           import okhttp3.RequestBody.Companion.toRequestBody
+          import org.json.JSONArray
+          import org.json.JSONObject
           import org.schabi.newpipe.extractor.NewPipe
           import org.schabi.newpipe.extractor.ServiceList
           import org.schabi.newpipe.extractor.downloader.Downloader
@@ -236,9 +243,17 @@ jobs:
           import org.schabi.newpipe.extractor.stream.StreamInfo
           import org.schabi.newpipe.extractor.stream.StreamInfoItem
           import org.schabi.newpipe.extractor.stream.VideoStream
+          import java.util.Calendar
           import java.util.concurrent.TimeUnit
 
           const val UA = "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0"
+          val BG = 0xFF0B0A12.toInt()
+          val SURF = 0xFF1B1830.toInt()
+          val PUR = 0xFF8B5CF6.toInt()
+          val GRAY = 0xFF9CA3AF.toInt()
+          val WHITE = 0xFFFFFFFF.toInt()
+
+          data class Track(val url: String, val title: String, val artist: String, val thumb: String?)
 
           class DL : Downloader() {
               private val client = OkHttpClient.Builder().readTimeout(30, TimeUnit.SECONDS).build()
@@ -261,35 +276,100 @@ jobs:
           class MainActivity : AppCompatActivity() {
               private lateinit var player: ExoPlayer
               private lateinit var playerView: PlayerView
-              private lateinit var list: ListView
-              private lateinit var header: TextView
-              private lateinit var status: TextView
-              private lateinit var panel: LinearLayout
+              private lateinit var homeView: View
+              private lateinit var searchView: View
+              private lateinit var libView: View
+              private lateinit var nowView: View
+              private lateinit var content: FrameLayout
+              private lateinit var nav: LinearLayout
+              private lateinit var navItems: List<TextView>
+              private lateinit var trendRow: LinearLayout
+              private lateinit var madeRow: LinearLayout
+              private lateinit var searchInput: EditText
+              private lateinit var browse: ScrollView
+              private lateinit var resultsList: ListView
+              private lateinit var recentBox: LinearLayout
+              private lateinit var libHeader: TextView
+              private lateinit var libList: ListView
+              private lateinit var mini: LinearLayout
+              private lateinit var miniThumb: ImageView
+              private lateinit var miniTitle: TextView
+              private lateinit var miniArtist: TextView
+              private lateinit var miniPlay: TextView
               private lateinit var art: ImageView
-              private lateinit var title: TextView
-              private lateinit var seekRow: LinearLayout
+              private lateinit var queueList: ListView
+              private lateinit var nTitle: TextView
+              private lateinit var nArtist: TextView
+              private lateinit var heart: TextView
+              private lateinit var seekBox: LinearLayout
               private lateinit var seek: SeekBar
               private lateinit var timeTv: TextView
-              private lateinit var ppBtn: Button
-              private lateinit var btnSong: Button
-              private lateinit var btnVideo: Button
-              private lateinit var btnSongs: Button
-              private lateinit var btnVideos: Button
-              private var items: List<StreamInfoItem> = emptyList()
-              private var tab = "music_songs"
-              private var query: String? = null
-              private var info: StreamInfo? = null
+              private lateinit var shuf: TextView
+              private lateinit var rep: TextView
+              private lateinit var bigPlay: TextView
+              private lateinit var modeSong: TextView
+              private lateinit var modeVideo: TextView
+
+              private val pills = mutableListOf<Pair<TextView, String>>()
               private val ui = Handler(Looper.getMainLooper())
+              private val prefs by lazy { getSharedPreferences("lib", MODE_PRIVATE) }
+              private var tab = "music_songs"
+              private var trending: List<Track> = emptyList()
+              private var queue: List<Track> = emptyList()
+              private var idx = -1
+              private var token = 0
+              private var shuffle = false
+              private var repeatOne = false
+              private var videoMode = false
+              private var resultsVisible = false
+              private var lastQuery = ""
+              private var info: StreamInfo? = null
 
               private fun dp(x: Int) = (x * resources.displayMetrics.density).toInt()
-              private fun thumb(i: StreamInfoItem): String? = i.thumbnails.maxByOrNull { it.height }?.url
-              private fun btn(t: String) = Button(this).apply { text = t; isAllCaps = false }
+              private fun lp(w: Int, h: Int, wt: Float = 0f) = LinearLayout.LayoutParams(w, h, wt)
+              private fun rr(c: Int, r: Int) = GradientDrawable().apply { setColor(c); cornerRadius = dp(r).toFloat() }
+              private fun oval(c: Int) = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(c) }
+              private fun tv(t: String, sz: Float = 14f, col: Int = WHITE, bold: Boolean = false) = TextView(this).apply {
+                  text = t; textSize = sz; setTextColor(col); if (bold) setTypeface(null, Typeface.BOLD)
+              }
+              private fun toast(e: Throwable) = Toast.makeText(this, e.toString().take(300), Toast.LENGTH_LONG).show()
               private fun fmt(s: Long) = "%d:%02d".format(s / 60, s % 60)
+              private fun cur(): Track? = queue.getOrNull(idx)
               private fun bestAudio(si: StreamInfo): AudioStream? =
                   si.audioStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }.maxByOrNull { it.averageBitrate }
               private fun bestVideo(si: StreamInfo): VideoStream? =
                   si.videoStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.height <= 720 }.maxByOrNull { it.height }
 
+              // ---------- storage ----------
+              private fun likes(): MutableList<Track> {
+                  val a = JSONArray(prefs.getString("likes", "[]"))
+                  return (0 until a.length()).map {
+                      val o = a.getJSONObject(it)
+                      Track(o.getString("u"), o.getString("t"), o.getString("a"), o.optString("i").ifEmpty { null })
+                  }.toMutableList()
+              }
+              private fun saveLikes(l: List<Track>) {
+                  val a = JSONArray()
+                  l.forEach { a.put(JSONObject().put("u", it.url).put("t", it.title).put("a", it.artist).put("i", it.thumb ?: "")) }
+                  prefs.edit().putString("likes", a.toString()).apply()
+              }
+              private fun isLiked(t: Track) = likes().any { it.url == t.url }
+              private fun toggleLike(t: Track) {
+                  val l = likes()
+                  if (!l.removeAll { it.url == t.url }) l.add(0, t)
+                  saveLikes(l)
+              }
+              private fun recents(): MutableList<String> {
+                  val a = JSONArray(prefs.getString("recent", "[]"))
+                  return (0 until a.length()).map { a.getString(it) }.toMutableList()
+              }
+              private fun addRecent(q: String) {
+                  val l = recents(); l.remove(q); l.add(0, q)
+                  prefs.edit().putString("recent", JSONArray(l.take(6)).toString()).apply()
+                  renderRecent()
+              }
+
+              // ---------- lifecycle ----------
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   val sp = getSharedPreferences("crash", MODE_PRIVATE)
@@ -304,103 +384,350 @@ jobs:
                           .setPositiveButton("OK", null).show()
                   }
                   NewPipe.init(DL())
+                  window.statusBarColor = BG
+                  window.navigationBarColor = BG
                   val ds = DefaultHttpDataSource.Factory().setUserAgent(UA)
                   player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(ds)).build()
                   player.addListener(object : Player.Listener {
-                      override fun onPlayerError(error: PlaybackException) { status.text = "Play error: ${error.errorCodeName}" }
-                      override fun onIsPlayingChanged(isPlaying: Boolean) { ppBtn.text = if (isPlaying) "Pause" else "Play" }
+                      override fun onPlayerError(error: PlaybackException) { toast(error) }
+                      override fun onIsPlayingChanged(isPlaying: Boolean) {
+                          val g = if (isPlaying) "⏸" else "▶"
+                          bigPlay.text = g; miniPlay.text = g
+                      }
+                      override fun onPlaybackStateChanged(state: Int) {
+                          if (state == Player.STATE_ENDED) { if (repeatOne) { player.seekTo(0); player.play() } else next() }
+                      }
                   })
-
-                  val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(24), dp(12), dp(8)) }
-                  val row = LinearLayout(this)
-                  val input = EditText(this).apply { hint = "Song search karo"; setSingleLine(); imeOptions = EditorInfo.IME_ACTION_SEARCH }
-                  val go = btn("Search")
-                  row.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
-                  row.addView(go)
-                  val chips = LinearLayout(this)
-                  btnSongs = btn("Songs"); btnVideos = btn("Videos")
-                  chips.addView(btnSongs, LinearLayout.LayoutParams(0, -2, 1f))
-                  chips.addView(btnVideos, LinearLayout.LayoutParams(0, -2, 1f))
-                  header = TextView(this).apply { textSize = 18f; setPadding(0, dp(8), 0, dp(4)) }
-                  list = ListView(this)
-                  status = TextView(this)
-
-                  panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
-                  val frame = FrameLayout(this).apply { setBackgroundColor(0xFF111111.toInt()) }
-                  art = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
-                  playerView = PlayerView(this).apply { visibility = View.GONE }
-                  playerView.player = player
-                  frame.addView(art, FrameLayout.LayoutParams(-1, -1))
-                  frame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
-                  title = TextView(this).apply { textSize = 16f; setPadding(0, dp(8), 0, dp(4)) }
-                  val modes = LinearLayout(this).apply { gravity = Gravity.CENTER }
-                  btnSong = btn("Song"); btnVideo = btn("Video"); btnVideo.isEnabled = false
-                  modes.addView(btnSong); modes.addView(btnVideo)
-                  seekRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-                  seek = SeekBar(this)
-                  timeTv = TextView(this)
-                  seekRow.addView(seek, LinearLayout.LayoutParams(0, -2, 1f))
-                  seekRow.addView(timeTv)
-                  ppBtn = btn("Play")
-                  panel.addView(frame, LinearLayout.LayoutParams(-1, dp(220)))
-                  panel.addView(title)
-                  panel.addView(modes)
-                  panel.addView(seekRow)
-                  panel.addView(ppBtn)
-
-                  root.addView(row); root.addView(chips); root.addView(header)
-                  root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
-                  root.addView(status); root.addView(panel)
-                  setContentView(root)
-
-                  list.setOnItemClickListener { _, _, pos, _ -> play(items[pos], tab == "music_videos") }
-                  go.setOnClickListener {
-                      val q = input.text.toString().trim()
-                      if (q.isNotEmpty()) { query = q; refresh() }
-                  }
-                  input.setOnEditorActionListener { _, _, _ -> go.performClick(); true }
-                  btnSongs.setOnClickListener { tab = "music_songs"; refresh() }
-                  btnVideos.setOnClickListener { tab = "music_videos"; refresh() }
-                  btnSong.setOnClickListener { info?.let { start(it, false, player.currentPosition) } }
-                  btnVideo.setOnClickListener { info?.let { start(it, true, player.currentPosition) } }
-                  ppBtn.setOnClickListener { if (player.isPlaying) player.pause() else player.play() }
-                  seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                      override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) { if (fromUser) player.seekTo(p * 1000L) }
-                      override fun onStartTrackingTouch(sb: SeekBar?) {}
-                      override fun onStopTrackingTouch(sb: SeekBar?) {}
-                  })
+                  buildUi()
+                  applyTab(); showTab(0); loadHome()
                   ui.post(object : Runnable {
                       override fun run() {
                           val d = player.duration
                           if (d > 0) {
                               seek.max = (d / 1000).toInt()
                               seek.progress = (player.currentPosition / 1000).toInt()
-                              timeTv.text = " ${fmt(player.currentPosition / 1000)} / ${fmt(d / 1000)}"
+                              timeTv.text = "${fmt(player.currentPosition / 1000)} / ${fmt(d / 1000)}"
                           }
                           ui.postDelayed(this, 500)
                       }
                   })
-                  refresh()
               }
 
-              private fun refresh() {
-                  btnSongs.alpha = if (tab == "music_songs") 1f else 0.5f
-                  btnVideos.alpha = if (tab == "music_videos") 1f else 0.5f
-                  val q = query ?: if (tab == "music_songs") "trending songs" else "trending music videos"
-                  val title = if (query == null) "Trending" else "Results: $q"
-                  header.text = "$title ..."
+              @Deprecated("Deprecated in Java")
+              override fun onBackPressed() {
+                  when {
+                      nowView.visibility == View.VISIBLE -> nowView.visibility = View.GONE
+                      resultsVisible && searchView.visibility == View.VISIBLE -> {
+                          resultsList.visibility = View.GONE; browse.visibility = View.VISIBLE; resultsVisible = false
+                      }
+                      else -> super.onBackPressed()
+                  }
+              }
+
+              override fun onDestroy() { ui.removeCallbacksAndMessages(null); player.release(); super.onDestroy() }
+
+              // ---------- UI ----------
+              private fun buildUi() {
+                  val root = FrameLayout(this).apply { setBackgroundColor(BG) }
+                  val main = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(28), 0, 0) }
+                  content = FrameLayout(this)
+                  homeView = buildHome(); searchView = buildSearch(); libView = buildLibrary()
+                  content.addView(homeView); content.addView(searchView); content.addView(libView)
+                  buildMini()
+                  nav = LinearLayout(this).apply { setBackgroundColor(0xFF0F0D1A.toInt()) }
+                  navItems = listOf("⌂" to "Home", "⌕" to "Search", "▤" to "Library").mapIndexed { i, p ->
+                      tv("${p.first}\n${p.second}", 12f, GRAY).apply {
+                          gravity = Gravity.CENTER; setPadding(0, dp(8), 0, dp(8)); setOnClickListener { showTab(i) }
+                      }.also { nav.addView(it, lp(0, -2, 1f)) }
+                  }
+                  main.addView(content, lp(-1, 0, 1f))
+                  main.addView(mini, lp(-1, -2).apply { setMargins(dp(8), dp(4), dp(8), dp(4)) })
+                  main.addView(nav)
+                  nowView = buildNow()
+                  root.addView(main, FrameLayout.LayoutParams(-1, -1))
+                  root.addView(nowView, FrameLayout.LayoutParams(-1, -1))
+                  setContentView(root)
+              }
+
+              private fun pillRow(): LinearLayout = LinearLayout(this).apply {
+                  listOf("Songs" to "music_songs", "Videos" to "music_videos").forEach { (l, v) ->
+                      val p = tv(l, 14f, WHITE).apply {
+                          setPadding(dp(18), dp(8), dp(18), dp(8))
+                          setOnClickListener { tab = v; applyTab(); onTabChanged() }
+                      }
+                      pills.add(p to v)
+                      addView(p, lp(-2, -2).apply { rightMargin = dp(8) })
+                  }
+              }
+              private fun applyTab() = pills.forEach { (p, v) -> p.background = rr(if (v == tab) PUR else SURF, 20) }
+              private fun onTabChanged() { loadHome(); if (resultsVisible) doSearch(lastQuery) }
+
+              private fun showTab(i: Int) {
+                  homeView.visibility = if (i == 0) View.VISIBLE else View.GONE
+                  searchView.visibility = if (i == 1) View.VISIBLE else View.GONE
+                  libView.visibility = if (i == 2) View.VISIBLE else View.GONE
+                  navItems.forEachIndexed { k, t -> t.setTextColor(if (k == i) PUR else GRAY) }
+                  if (i == 2) refreshLib()
+              }
+
+              private fun buildHome(): View {
+                  val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(16)) }
+                  val h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                  col.addView(tv(if (h < 12) "Good Morning" else if (h < 17) "Good Afternoon" else "Good Evening", 26f, WHITE, true))
+                  col.addView(tv("Let's play something", 14f, GRAY))
+                  col.addView(pillRow(), lp(-2, -2).apply { topMargin = dp(12) })
+                  val hero = FrameLayout(this).apply {
+                      background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xFF4C1D95.toInt(), 0xFFC026D3.toInt()))
+                          .apply { cornerRadius = dp(20).toFloat() }
+                      setOnClickListener { if (trending.isNotEmpty()) playQueue(trending, 0) }
+                  }
+                  hero.addView(tv("Feel\nThe Music", 28f, WHITE, true).apply { setPadding(dp(20), dp(20), 0, 0) })
+                  hero.addView(tv("▶", 18f, BG).apply { gravity = Gravity.CENTER; background = oval(WHITE) },
+                      FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, dp(16), dp(16)) })
+                  col.addView(hero, lp(-1, dp(150)).apply { topMargin = dp(16) })
+                  trendRow = LinearLayout(this); madeRow = LinearLayout(this)
+                  col.addView(tv("Trending Now", 18f, WHITE, true), lp(-2, -2).apply { topMargin = dp(20); bottomMargin = dp(8) })
+                  col.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(trendRow) })
+                  col.addView(tv("Made for You", 18f, WHITE, true), lp(-2, -2).apply { topMargin = dp(20); bottomMargin = dp(8) })
+                  col.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(madeRow) })
+                  return ScrollView(this).apply { addView(col) }
+              }
+
+              private fun loadHome() {
+                  val songs = tab == "music_songs"
+                  fetch(if (songs) "trending songs" else "trending music videos") { trending = it; fillRow(trendRow, it) }
+                  fetch(if (songs) "latest bollywood songs" else "latest bollywood music video") { fillRow(madeRow, it) }
+              }
+
+              private fun fillRow(row: LinearLayout, list: List<Track>) {
+                  row.removeAllViews()
+                  list.forEachIndexed { i, t ->
+                      val c = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setOnClickListener { playQueue(list, i) } }
+                      c.addView(ImageView(this).apply {
+                          scaleType = ImageView.ScaleType.CENTER_CROP; background = rr(SURF, 12); clipToOutline = true; load(t.thumb)
+                      }, lp(dp(120), dp(120)))
+                      c.addView(tv(t.title, 13f, WHITE, true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }, lp(dp(120), -2))
+                      c.addView(tv(t.artist, 12f, GRAY).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }, lp(dp(120), -2))
+                      row.addView(c, lp(-2, -2).apply { rightMargin = dp(12) })
+                  }
+              }
+
+              private fun buildSearch(): View {
+                  val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), 0) }
+                  col.addView(tv("Search", 24f, WHITE, true))
+                  searchInput = EditText(this).apply {
+                      hint = "Search songs, artists, albums..."; setHintTextColor(GRAY); setTextColor(WHITE)
+                      setSingleLine(); imeOptions = EditorInfo.IME_ACTION_SEARCH
+                      background = rr(SURF, 12); setPadding(dp(14), dp(10), dp(14), dp(10))
+                      setOnEditorActionListener { _, _, _ -> doSearch(text.toString().trim()); true }
+                  }
+                  col.addView(searchInput, lp(-1, -2).apply { topMargin = dp(12) })
+                  col.addView(pillRow(), lp(-2, -2).apply { topMargin = dp(10) })
+                  val b = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  b.addView(tv("Browse All", 17f, WHITE, true), lp(-2, -2).apply { topMargin = dp(14); bottomMargin = dp(8) })
+                  val cats = listOf("Hindi" to 0xFFEF4444, "English" to 0xFF3B82F6, "Punjabi" to 0xFFF59E0B, "Trending" to 0xFFEC4899,
+                      "Romance" to 0xFFE11D48, "Chill" to 0xFF14B8A6, "Party" to 0xFF7C3AED, "Workout" to 0xFFD97706)
+                  cats.chunked(2).forEach { pair ->
+                      val r = LinearLayout(this)
+                      pair.forEach { (n, c) ->
+                          r.addView(tv(n, 16f, WHITE, true).apply {
+                              background = rr(c.toInt(), 12); setPadding(dp(14), dp(14), 0, 0)
+                              setOnClickListener { searchInput.setText(n); doSearch("$n songs") }
+                          }, lp(0, dp(76), 1f).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) })
+                      }
+                      b.addView(r)
+                  }
+                  val rh = LinearLayout(this)
+                  rh.addView(tv("Recent Searches", 17f, WHITE, true), lp(0, -2, 1f))
+                  rh.addView(tv("Clear All", 13f, PUR).apply {
+                      setOnClickListener { prefs.edit().putString("recent", "[]").apply(); renderRecent() }
+                  })
+                  b.addView(rh, lp(-1, -2).apply { topMargin = dp(16) })
+                  recentBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  b.addView(recentBox)
+                  browse = ScrollView(this).apply { addView(b) }
+                  resultsList = ListView(this).apply { divider = null; visibility = View.GONE }
+                  val body = FrameLayout(this)
+                  body.addView(browse); body.addView(resultsList)
+                  col.addView(body, lp(-1, 0, 1f))
+                  renderRecent()
+                  return col
+              }
+
+              private fun renderRecent() {
+                  recentBox.removeAllViews()
+                  recents().forEach { q ->
+                      recentBox.addView(tv("⟲   $q", 15f, WHITE).apply {
+                          setPadding(0, dp(10), 0, dp(10))
+                          setOnClickListener { searchInput.setText(q); doSearch(q) }
+                      })
+                  }
+              }
+
+              private fun doSearch(q: String) {
+                  if (q.isEmpty()) return
+                  lastQuery = q
+                  addRecent(q)
+                  browse.visibility = View.GONE; resultsList.visibility = View.VISIBLE; resultsVisible = true
+                  (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(searchInput.windowToken, 0)
+                  fetch(q) { r ->
+                      resultsList.adapter = RowAdapter(r)
+                      resultsList.setOnItemClickListener { _, _, p, _ -> playQueue(r, p) }
+                  }
+              }
+
+              private fun buildLibrary(): View {
+                  val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), 0) }
+                  col.addView(tv("Your Library", 24f, WHITE, true))
+                  libHeader = tv("", 14f, GRAY).apply { setPadding(0, dp(12), 0, dp(8)) }
+                  libList = ListView(this).apply { divider = null }
+                  col.addView(libHeader)
+                  col.addView(libList, lp(-1, 0, 1f))
+                  return col
+              }
+
+              private fun refreshLib() {
+                  val l = likes()
+                  libHeader.text = "♥  Liked Songs · ${l.size} songs"
+                  libList.adapter = RowAdapter(l)
+                  libList.setOnItemClickListener { _, _, p, _ -> playQueue(l, p) }
+              }
+
+              private fun buildMini() {
+                  miniThumb = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP; background = rr(BG, 8); clipToOutline = true }
+                  miniTitle = tv("", 14f, WHITE, true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+                  miniArtist = tv("", 12f, GRAY).apply { maxLines = 1 }
+                  miniPlay = tv("▶", 22f, WHITE).apply { setPadding(dp(14), dp(6), dp(14), dp(6)); setOnClickListener { togglePlay() } }
+                  val tcol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(miniTitle); addView(miniArtist) }
+                  mini = LinearLayout(this).apply {
+                      gravity = Gravity.CENTER_VERTICAL; background = rr(SURF, 14); setPadding(dp(8), dp(8), dp(8), dp(8))
+                      visibility = View.GONE
+                      addView(miniThumb, lp(dp(44), dp(44)))
+                      addView(tcol, lp(0, -2, 1f).apply { leftMargin = dp(10) })
+                      addView(miniPlay)
+                      setOnClickListener { nowView.visibility = View.VISIBLE }
+                  }
+              }
+
+              private fun buildNow(): View {
+                  val col = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL; setBackgroundColor(BG); isClickable = true
+                      setPadding(dp(24), dp(36), dp(24), dp(16)); visibility = View.GONE
+                  }
+                  val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+                  top.addView(tv("▾", 28f, WHITE).apply { setOnClickListener { nowView.visibility = View.GONE } })
+                  top.addView(tv("Now Playing", 15f, WHITE).apply { gravity = Gravity.CENTER }, lp(0, -2, 1f))
+                  top.addView(tv("☰", 22f, WHITE).apply { setOnClickListener { toggleQueue() } })
+                  col.addView(top)
+
+                  val side = resources.displayMetrics.widthPixels - dp(48)
+                  val frame = FrameLayout(this)
+                  art = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP; background = rr(SURF, 20); clipToOutline = true }
+                  playerView = PlayerView(this).apply { visibility = View.GONE }
+                  playerView.player = player
+                  queueList = ListView(this).apply { divider = null; visibility = View.GONE; setBackgroundColor(BG) }
+                  frame.addView(art, FrameLayout.LayoutParams(side, side, Gravity.CENTER))
+                  frame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
+                  frame.addView(queueList, FrameLayout.LayoutParams(-1, -1))
+                  col.addView(frame, lp(-1, side).apply { topMargin = dp(16) })
+
+                  nTitle = tv("", 20f, WHITE, true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+                  nArtist = tv("", 14f, GRAY).apply { maxLines = 1 }
+                  heart = tv("♡", 28f, WHITE).apply {
+                      setPadding(dp(12), 0, 0, 0)
+                      setOnClickListener { cur()?.let { toggleLike(it); updateHeart() } }
+                  }
+                  val tc = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(nTitle); addView(nArtist) }
+                  val tr = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+                  tr.addView(tc, lp(0, -2, 1f)); tr.addView(heart)
+                  col.addView(tr, lp(-1, -2).apply { topMargin = dp(16) })
+
+                  seek = SeekBar(this).apply {
+                      progressTintList = ColorStateList.valueOf(PUR); thumbTintList = ColorStateList.valueOf(PUR)
+                      setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                          override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) { if (fromUser) player.seekTo(p * 1000L) }
+                          override fun onStartTrackingTouch(sb: SeekBar?) {}
+                          override fun onStopTrackingTouch(sb: SeekBar?) {}
+                      })
+                  }
+                  timeTv = tv("0:00 / 0:00", 12f, GRAY)
+                  seekBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(seek); addView(timeTv) }
+                  col.addView(seekBox, lp(-1, -2).apply { topMargin = dp(8) })
+
+                  shuf = tv("⇄", 24f, GRAY).apply { setOnClickListener { shuffle = !shuffle; setTextColor(if (shuffle) PUR else GRAY) } }
+                  rep = tv("↻", 24f, GRAY).apply { setOnClickListener { repeatOne = !repeatOne; setTextColor(if (repeatOne) PUR else GRAY) } }
+                  bigPlay = tv("⏸", 28f, WHITE).apply { gravity = Gravity.CENTER; background = oval(PUR); setOnClickListener { togglePlay() } }
+                  val ctrl = LinearLayout(this).apply { gravity = Gravity.CENTER }
+                  val gap = lp(-2, -2).apply { setMargins(dp(14), 0, dp(14), 0) }
+                  ctrl.addView(shuf, gap)
+                  ctrl.addView(tv("⏮", 28f, WHITE).apply { setOnClickListener { prev() } }, gap)
+                  ctrl.addView(bigPlay, lp(dp(68), dp(68)))
+                  ctrl.addView(tv("⏭", 28f, WHITE).apply { setOnClickListener { next() } }, gap)
+                  ctrl.addView(rep, gap)
+                  col.addView(ctrl, lp(-1, -2).apply { topMargin = dp(12) })
+
+                  modeSong = tv("Song", 14f, WHITE).apply {
+                      setPadding(dp(20), dp(8), dp(20), dp(8)); background = rr(PUR, 20)
+                      setOnClickListener { info?.let { start(it, false, player.currentPosition) } }
+                  }
+                  modeVideo = tv("Video", 14f, WHITE).apply {
+                      setPadding(dp(20), dp(8), dp(20), dp(8)); background = rr(SURF, 20); isEnabled = false; alpha = 0.4f
+                      setOnClickListener { info?.let { start(it, true, player.currentPosition) } }
+                  }
+                  val modes = LinearLayout(this).apply { gravity = Gravity.CENTER }
+                  modes.addView(modeSong, lp(-2, -2).apply { rightMargin = dp(10) }); modes.addView(modeVideo)
+                  col.addView(modes, lp(-1, -2).apply { topMargin = dp(14) })
+                  return col
+              }
+
+              private fun toggleQueue() {
+                  if (queueList.visibility == View.VISIBLE) { queueList.visibility = View.GONE; return }
+                  queueList.adapter = RowAdapter(queue, idx)
+                  queueList.setOnItemClickListener { _, _, p, _ -> idx = p; queueList.visibility = View.GONE; loadCurrent(videoMode) }
+                  queueList.visibility = View.VISIBLE
+              }
+
+              private fun updateHeart() {
+                  val liked = cur()?.let { isLiked(it) } == true
+                  heart.text = if (liked) "♥" else "♡"
+                  heart.setTextColor(if (liked) 0xFFEF4444.toInt() else WHITE)
+              }
+
+              inner class RowAdapter(private val data: List<Track>, private val hi: Int = -1) : BaseAdapter() {
+                  override fun getCount() = data.size
+                  override fun getItem(p: Int) = data[p]
+                  override fun getItemId(p: Int) = p.toLong()
+                  override fun getView(p: Int, v: View?, parent: ViewGroup?): View {
+                      val t = data[p]
+                      val iv = ImageView(this@MainActivity).apply {
+                          scaleType = ImageView.ScaleType.CENTER_CROP; background = rr(SURF, 10); clipToOutline = true; load(t.thumb)
+                      }
+                      val col = LinearLayout(this@MainActivity).apply {
+                          orientation = LinearLayout.VERTICAL
+                          addView(tv(t.title, 15f, if (p == hi) PUR else WHITE, true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
+                          addView(tv(t.artist, 12f, GRAY).apply { maxLines = 1 })
+                      }
+                      return LinearLayout(this@MainActivity).apply {
+                          gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, dp(6))
+                          addView(iv, lp(dp(56), dp(56)))
+                          addView(col, lp(0, -2, 1f).apply { leftMargin = dp(12) })
+                      }
+                  }
+              }
+
+              // ---------- data + playback ----------
+              private fun fetch(q: String, cb: (List<Track>) -> Unit) {
+                  val t = tab
                   Thread {
                       try {
-                          val r = search(q)
-                          runOnUiThread { items = r; header.text = title; list.adapter = RowAdapter(r) }
-                      } catch (e: Throwable) {
-                          runOnUiThread { header.text = "Error: ${e.stackTraceToString().take(1200)}" }
-                      }
+                          val r = search(q, t).map { Track(it.url, it.name, it.uploaderName ?: "", it.thumbnails.maxByOrNull { x -> x.height }?.url) }
+                          runOnUiThread { cb(r) }
+                      } catch (e: Throwable) { runOnUiThread { toast(e) } }
                   }.start()
               }
 
-              private fun search(q: String): List<StreamInfoItem> {
-                  val ex = ServiceList.YouTube.getSearchExtractor(q, listOf(tab), "")
+              private fun search(q: String, filter: String): List<StreamInfoItem> {
+                  val ex = ServiceList.YouTube.getSearchExtractor(q, listOf(filter), "")
                   ex.fetchPage()
                   val r = ex.initialPage.items.filterIsInstance<StreamInfoItem>()
                   if (r.isNotEmpty()) return r
@@ -409,60 +736,65 @@ jobs:
                   return ex2.initialPage.items.filterIsInstance<StreamInfoItem>()
               }
 
-              private fun play(i: StreamInfoItem, asVideo: Boolean) {
-                  panel.visibility = View.VISIBLE
-                  title.text = "${i.name}\n${i.uploaderName ?: ""}"
-                  art.load(thumb(i))
-                  status.text = "Loading..."
+              private fun playQueue(list: List<Track>, i: Int) {
+                  queue = list; idx = i
+                  nowView.visibility = View.VISIBLE
+                  queueList.visibility = View.GONE
+                  loadCurrent(tab == "music_videos")
+              }
+
+              private fun loadCurrent(video: Boolean) {
+                  val t = cur() ?: return
+                  val my = ++token
+                  nTitle.text = t.title; nArtist.text = t.artist; miniTitle.text = t.title; miniArtist.text = t.artist
+                  art.load(t.thumb); miniThumb.load(t.thumb); updateHeart()
+                  mini.visibility = View.VISIBLE
                   player.stop()
+                  modeVideo.isEnabled = false; modeVideo.alpha = 0.4f
                   Thread {
                       try {
-                          val si = StreamInfo.getInfo(ServiceList.YouTube, i.url)
+                          val si = StreamInfo.getInfo(ServiceList.YouTube, t.url)
                           runOnUiThread {
-                              info = si
-                              val hasVideo = bestVideo(si) != null
-                              btnVideo.isEnabled = hasVideo
-                              start(si, asVideo && hasVideo, 0)
+                              if (my == token) {
+                                  info = si
+                                  val hv = bestVideo(si) != null
+                                  modeVideo.isEnabled = hv; modeVideo.alpha = if (hv) 1f else 0.4f
+                                  start(si, video && hv, 0)
+                              }
                           }
-                      } catch (e: Throwable) {
-                          runOnUiThread { status.text = "Error: ${e.stackTraceToString().take(1200)}" }
-                      }
+                      } catch (e: Throwable) { runOnUiThread { toast(e) } }
                   }.start()
               }
 
               private fun start(si: StreamInfo, video: Boolean, pos: Long) {
                   val url = if (video) bestVideo(si)?.content else bestAudio(si)?.content
-                  if (url == null) { status.text = "Stream nahi mila"; return }
+                  if (url == null) { Toast.makeText(this, "Stream nahi mila", Toast.LENGTH_SHORT).show(); return }
+                  videoMode = video
                   playerView.visibility = if (video) View.VISIBLE else View.GONE
                   art.visibility = if (video) View.GONE else View.VISIBLE
-                  seekRow.visibility = if (video) View.GONE else View.VISIBLE
+                  seekBox.visibility = if (video) View.GONE else View.VISIBLE
+                  modeSong.background = rr(if (video) SURF else PUR, 20)
+                  modeVideo.background = rr(if (video) PUR else SURF, 20)
                   player.setMediaItem(MediaItem.fromUri(url))
                   player.prepare()
                   if (pos > 0) player.seekTo(pos)
                   player.play()
-                  status.text = ""
               }
 
-              inner class RowAdapter(private val data: List<StreamInfoItem>) : BaseAdapter() {
-                  override fun getCount() = data.size
-                  override fun getItem(p: Int) = data[p]
-                  override fun getItemId(p: Int) = p.toLong()
-                  override fun getView(p: Int, v: View?, parent: ViewGroup?): View {
-                      val ctx = this@MainActivity
-                      val row = (v as? LinearLayout) ?: LinearLayout(ctx).apply {
-                          gravity = Gravity.CENTER_VERTICAL
-                          setPadding(0, dp(6), 0, dp(6))
-                          addView(ImageView(ctx).apply { scaleType = ImageView.ScaleType.CENTER_CROP }, LinearLayout.LayoutParams(dp(64), dp(64)))
-                          addView(TextView(ctx).apply { setPadding(dp(12), 0, 0, 0); maxLines = 3 }, LinearLayout.LayoutParams(0, -2, 1f))
-                      }
-                      val it = data[p]
-                      (row.getChildAt(0) as ImageView).load(thumb(it))
-                      (row.getChildAt(1) as TextView).text = "${it.name}\n${it.uploaderName ?: ""}"
-                      return row
-                  }
+              private fun togglePlay() { if (player.isPlaying) player.pause() else player.play() }
+
+              private fun next() {
+                  if (queue.isEmpty()) return
+                  idx = if (shuffle) queue.indices.random() else (idx + 1) % queue.size
+                  loadCurrent(videoMode)
               }
 
-              override fun onDestroy() { ui.removeCallbacksAndMessages(null); player.release(); super.onDestroy() }
+              private fun prev() {
+                  if (queue.isEmpty()) return
+                  if (player.currentPosition > 3000) { player.seekTo(0); return }
+                  idx = (idx - 1 + queue.size) % queue.size
+                  loadCurrent(videoMode)
+              }
           }
           EOF
 
