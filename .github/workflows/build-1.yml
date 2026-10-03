@@ -190,7 +190,8 @@ jobs:
               val sd = ScaleGestureDetector(c, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                   override fun onScale(s: ScaleGestureDetector): Boolean {
                       acc *= s.scaleFactor
-                      if (acc > 1.15f || acc < 0.85f) { 
+                      // Increased threshold to fix lag on low-end devices like Redmi 9 Prime
+                      if (acc > 1.25f || acc < 0.75f) { 
                           setTextSize(TypedValue.COMPLEX_UNIT_PX, (textSize * acc).coerceIn(8 * d, 40 * d))
                           acc = 1f; pad(true)
                       }
@@ -259,6 +260,10 @@ jobs:
               var pickRepo: File? = null; var pickDir: File? = null
               var live = 0
               val logMap = HashMap<Long, String>()
+              
+              var lastFind = ""
+              var lastReplace = ""
+              var lastDownloadedPath = ""
 
               val KW = Regex("\\b(class|fun|val|var|def|function|return|if|else|for|while|import|package|public|private|protected|static|void|int|new|true|false|null|const|let|async|await|try|catch|from|in|is|when|override|this|echo|run|break|continue)\\b")
               val NUM = Regex("\\b\\d+(\\.\\d+)?\\b")
@@ -593,47 +598,6 @@ jobs:
                   mark(CMT, col(R.color.cm))
               }
 
-              fun showSearchReplace(cv: CodeView) {
-                  val v = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(8), 0, dp(8)) }
-                  val fInput = EditText(this).apply { hint = "Find..."; textSize = 15f; setTextColor(col(R.color.fg)); background = box(col(R.color.bg), col(R.color.stroke), 8); setPadding(dp(12), dp(12), dp(12), dp(12)) }
-                  val rInput = EditText(this).apply { hint = "Replace with..."; textSize = 15f; setTextColor(col(R.color.fg)); background = box(col(R.color.bg), col(R.color.stroke), 8); setPadding(dp(12), dp(12), dp(12), dp(12)); layoutParams = lp(-1,-2).apply{topMargin=dp(10)} }
-                  v.addView(fInput); v.addView(rInput)
-                  
-                  var idx = 0
-                  val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = lp(-1,-2).apply{topMargin=dp(14)} }
-                  row.addView(smallBtn("Find Next") {
-                      val q = fInput.text.toString()
-                      if (q.isNotEmpty()) {
-                          val txt = cv.text.toString()
-                          idx = txt.indexOf(q, idx)
-                          if (idx >= 0) {
-                              cv.setSelection(idx, idx + q.length)
-                              cv.requestFocus()
-                              idx += q.length
-                          } else {
-                              idx = 0; toast("No more matches")
-                          }
-                      }
-                  })
-                  row.addView(smallBtn("Replace") {
-                      if (cv.selectionEnd > cv.selectionStart) {
-                          cv.text.replace(cv.selectionStart, cv.selectionEnd, rInput.text.toString())
-                          hl(cv.text)
-                      }
-                  })
-                  row.addView(smallBtn("All") {
-                      val q = fInput.text.toString()
-                      if (q.isNotEmpty()) {
-                          val nt = cv.text.toString().replace(q, rInput.text.toString())
-                          cv.setText(nt)
-                          hl(cv.text)
-                          toast("Replaced all matches")
-                      }
-                  })
-                  v.addView(row)
-                  dlg("Search & Replace", v, null, "Close")
-              }
-
               fun edit(repo: File, dir: File, f: File) {
                   if (f.length() > 400000) { alert("Error", "File is too large to edit"); return }
                   var last = f.readText(); var silent = false
@@ -663,14 +627,83 @@ jobs:
 
                   root.removeAllViews(); root.gravity = Gravity.TOP
                   onBack = { flush(); browse(repo, dir) }
+                  
                   val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(12)) }
                   val title = tv(f.name, 15, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.MIDDLE; setPadding(0, 0, dp(8), 0) }
                   top.addView(title, lp(0, -2, 1f))
                   
+                  val frame = FrameLayout(this).apply { layoutParams = lp(-1, 0, 1f) }
+                  
+                  // Floating Search Box (70% Transparent)
+                  val searchBox = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      background = box(col(R.color.card), col(R.color.stroke), 12).apply { alpha = 180 }
+                      setPadding(dp(12), dp(12), dp(12), dp(12))
+                      layoutParams = FrameLayout.LayoutParams(-1, -2).apply { gravity = Gravity.TOP; setMargins(dp(10), dp(10), dp(10), dp(10)) }
+                      visibility = View.GONE
+                      elevation = dp(4).toFloat()
+                  }
+                  
+                  val fInput = EditText(this).apply { 
+                      hint = "Find..."; setText(lastFind); textSize = 13f; setTextColor(col(R.color.fg)); 
+                      background = box(col(R.color.bg), col(R.color.stroke), 6).apply { alpha = 180 }
+                      setPadding(dp(10), dp(10), dp(10), dp(10)); layoutParams = lp(-1, -2).apply { bottomMargin = dp(6) }
+                      addTextChangedListener(object: TextWatcher {
+                          override fun afterTextChanged(s: Editable?) { lastFind = s?.toString() ?: "" }
+                          override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                          override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                      })
+                  }
+                  
+                  val rInput = EditText(this).apply { 
+                      hint = "Replace with..."; setText(lastReplace); textSize = 13f; setTextColor(col(R.color.fg)); 
+                      background = box(col(R.color.bg), col(R.color.stroke), 6).apply { alpha = 180 }
+                      setPadding(dp(10), dp(10), dp(10), dp(10)); layoutParams = lp(-1, -2).apply { bottomMargin = dp(10) }
+                      addTextChangedListener(object: TextWatcher {
+                          override fun afterTextChanged(s: Editable?) { lastReplace = s?.toString() ?: "" }
+                          override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                          override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                      })
+                  }
+                  searchBox.addView(fInput); searchBox.addView(rInput)
+                  
+                  var idx = 0
+                  val sBtnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
+                  sBtnRow.addView(smallBtn("Next") {
+                      val q = lastFind
+                      if (q.isNotEmpty()) {
+                          val txt = cv.text.toString()
+                          idx = txt.indexOf(q, idx, ignoreCase = true)
+                          if (idx >= 0) {
+                              cv.setSelection(idx, idx + q.length)
+                              cv.requestFocus()
+                              idx += q.length
+                          } else {
+                              idx = 0; toast("No more matches")
+                          }
+                      }
+                  })
+                  sBtnRow.addView(smallBtn("Replace") {
+                      if (cv.selectionEnd > cv.selectionStart) {
+                          cv.text.replace(cv.selectionStart, cv.selectionEnd, lastReplace)
+                          hl(cv.text)
+                      }
+                  })
+                  sBtnRow.addView(smallBtn("All") {
+                      if (lastFind.isNotEmpty()) {
+                          val nt = cv.text.toString().replace(lastFind, lastReplace, ignoreCase = true)
+                          cv.setText(nt)
+                          hl(cv.text)
+                          toast("Replaced all matches")
+                      }
+                  })
+                  sBtnRow.addView(smallBtn("Close") { searchBox.visibility = View.GONE })
+                  searchBox.addView(sBtnRow)
+                  
                   val actBar = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
                   val actRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
                   actRow.addView(smallBtn("Save") { save() })
-                  actRow.addView(smallBtn("Search") { showSearchReplace(cv) })
+                  actRow.addView(smallBtn("Search") { searchBox.visibility = if (searchBox.visibility == View.VISIBLE) View.GONE else View.VISIBLE })
                   actRow.addView(smallBtn("Undo") { flush(); if (undo.isNotEmpty()) { redo.add(last); put(undo.removeAt(undo.size - 1)) } })
                   actRow.addView(smallBtn("Redo") { flush(); if (redo.isNotEmpty()) { undo.add(last); put(redo.removeAt(redo.size - 1)) } })
                   actRow.addView(smallBtn("Push") { save(); pushOne(repo, f) })
@@ -678,10 +711,11 @@ jobs:
                   top.addView(actBar)
                   root.addView(top)
                   
-                  // 2D Smooth Scrolling Setup
                   val hsv = HorizontalScrollView(this).apply { isFillViewport = true; addView(cv) }
                   val vsv = ScrollView(this).apply { isFillViewport = true; addView(hsv) }
-                  root.addView(vsv, lp(-1, 0, 1f))
+                  frame.addView(vsv, FrameLayout.LayoutParams(-1, -1))
+                  frame.addView(searchBox)
+                  root.addView(frame)
               }
 
               // ---------- GitHub API ----------
@@ -885,6 +919,16 @@ jobs:
                           stepRow.addView(tv(txt, 13, true, txtCol))
                       }
                       stepBox.addView(stepRow)
+                      
+                      if (artifactState == 2 && lastDownloadedPath.isNotEmpty()) {
+                          stepBox.addView(View(this).apply { setBackgroundColor(col(R.color.stroke)); layoutParams = lp(-1, dp(1)) })
+                          stepBox.addView(tv("Saved at: $lastDownloadedPath", 11, true, R.color.ok).apply {
+                              typeface = Typeface.MONOSPACE
+                              setPadding(dp(16), dp(12), dp(16), dp(12))
+                              setHorizontallyScrolling(true)
+                          })
+                      }
+                      
                       l.addView(stepBox)
                   }
                   
@@ -952,6 +996,7 @@ jobs:
                   out.parentFile?.mkdirs()
                   
                   http("GET", x.getString("archive_download_url")).inputStream.use { i -> out.outputStream().use { i.copyTo(it) } }
+                  lastDownloadedPath = out.absolutePath
                   ui { toast("Artifact downloaded successfully") }
               }
 
