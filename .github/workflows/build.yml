@@ -1,0 +1,68 @@
+name: Build Musify APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Android/iOS folders are NOT stored in the repo; they are generated here.
+      - name: Generate Android platform files
+        run: |
+          flutter create --platforms=android --org com.example --project-name musify .
+          rm -f test/widget_test.dart
+
+      - name: Patch Android (permissions, audio service, activity)
+        run: |
+          python3 - <<'PY'
+          import re, glob, os
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p).read()
+          if 'xmlns:tools' not in s:
+              s = s.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android"',
+                            '<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools"', 1)
+          perms = ''.join('    <uses-permission android:name="android.permission.%s"/>\n' % x
+                          for x in ['INTERNET', 'WAKE_LOCK', 'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_MEDIA_PLAYBACK'])
+          s = s.replace('<application', perms + '    <application', 1)
+          svc = '''    <service android:name="com.ryanheise.audioservice.AudioService" android:foregroundServiceType="mediaPlayback" android:exported="true" tools:ignore="Instantiatable">
+              <intent-filter><action android:name="android.media.browse.MediaBrowserService"/></intent-filter>
+            </service>
+            <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver" android:exported="true" tools:ignore="Instantiatable">
+              <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON"/></intent-filter>
+            </receiver>
+          '''
+          s = s.replace('</application>', svc + '  </application>', 1)
+          s = re.sub(r'android:label="[^"]*"', 'android:label="Musify"', s, 1)
+          open(p, 'w').write(s)
+          for f in glob.glob('android/app/src/main/**/MainActivity.*', recursive=True):
+              os.remove(f)
+          d = 'android/app/src/main/kotlin/com/example/musify'
+          os.makedirs(d, exist_ok=True)
+          open(d + '/MainActivity.kt', 'w').write(
+              'package com.example.musify\n\nimport com.ryanheise.audioservice.AudioServiceActivity\n\nclass MainActivity : AudioServiceActivity()\n')
+          PY
+
+      - run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release --no-shrink
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: musify-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
