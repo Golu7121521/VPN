@@ -148,6 +148,8 @@ jobs:
             coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
             implementation 'com.squareup.okhttp3:okhttp:4.12.0'
             implementation 'androidx.media3:media3-exoplayer:1.3.1'
+            implementation 'androidx.media3:media3-ui:1.3.1'
+            implementation 'io.coil-kt:coil:2.6.0'
             implementation 'androidx.appcompat:appcompat:1.7.0'
             implementation 'androidx.core:core-ktx:1.13.1'
           }
@@ -205,6 +207,11 @@ jobs:
           package com.example.musicapp
 
           import android.os.Bundle
+          import android.os.Handler
+          import android.os.Looper
+          import android.view.Gravity
+          import android.view.View
+          import android.view.ViewGroup
           import android.view.inputmethod.EditorInfo
           import android.widget.*
           import androidx.appcompat.app.AppCompatActivity
@@ -214,6 +221,8 @@ jobs:
           import androidx.media3.datasource.DefaultHttpDataSource
           import androidx.media3.exoplayer.ExoPlayer
           import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+          import androidx.media3.ui.PlayerView
+          import coil.load
           import okhttp3.OkHttpClient
           import okhttp3.RequestBody.Companion.toRequestBody
           import org.schabi.newpipe.extractor.NewPipe
@@ -222,9 +231,11 @@ jobs:
           import org.schabi.newpipe.extractor.downloader.Request
           import org.schabi.newpipe.extractor.downloader.Response
           import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+          import org.schabi.newpipe.extractor.stream.AudioStream
           import org.schabi.newpipe.extractor.stream.DeliveryMethod
           import org.schabi.newpipe.extractor.stream.StreamInfo
           import org.schabi.newpipe.extractor.stream.StreamInfoItem
+          import org.schabi.newpipe.extractor.stream.VideoStream
           import java.util.concurrent.TimeUnit
 
           const val UA = "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0"
@@ -249,10 +260,35 @@ jobs:
 
           class MainActivity : AppCompatActivity() {
               private lateinit var player: ExoPlayer
+              private lateinit var playerView: PlayerView
               private lateinit var list: ListView
               private lateinit var header: TextView
-              private lateinit var now: TextView
+              private lateinit var status: TextView
+              private lateinit var panel: LinearLayout
+              private lateinit var art: ImageView
+              private lateinit var title: TextView
+              private lateinit var seekRow: LinearLayout
+              private lateinit var seek: SeekBar
+              private lateinit var timeTv: TextView
+              private lateinit var ppBtn: Button
+              private lateinit var btnSong: Button
+              private lateinit var btnVideo: Button
+              private lateinit var btnSongs: Button
+              private lateinit var btnVideos: Button
               private var items: List<StreamInfoItem> = emptyList()
+              private var tab = "music_songs"
+              private var query: String? = null
+              private var info: StreamInfo? = null
+              private val ui = Handler(Looper.getMainLooper())
+
+              private fun dp(x: Int) = (x * resources.displayMetrics.density).toInt()
+              private fun thumb(i: StreamInfoItem): String? = i.thumbnails.maxByOrNull { it.height }?.url
+              private fun btn(t: String) = Button(this).apply { text = t; isAllCaps = false }
+              private fun fmt(s: Long) = "%d:%02d".format(s / 60, s % 60)
+              private fun bestAudio(si: StreamInfo): AudioStream? =
+                  si.audioStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }.maxByOrNull { it.averageBitrate }
+              private fun bestVideo(si: StreamInfo): VideoStream? =
+                  si.videoStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.height <= 720 }.maxByOrNull { it.height }
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -271,52 +307,92 @@ jobs:
                   val ds = DefaultHttpDataSource.Factory().setUserAgent(UA)
                   player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(ds)).build()
                   player.addListener(object : Player.Listener {
-                      override fun onPlayerError(error: PlaybackException) {
-                          now.text = "Play error: ${error.errorCodeName}"
-                      }
+                      override fun onPlayerError(error: PlaybackException) { status.text = "Play error: ${error.errorCodeName}" }
+                      override fun onIsPlayingChanged(isPlaying: Boolean) { ppBtn.text = if (isPlaying) "Pause" else "Play" }
                   })
 
-                  val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 48, 24, 24) }
+                  val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(24), dp(12), dp(8)) }
                   val row = LinearLayout(this)
-                  val input = EditText(this).apply {
-                      hint = "Song search karo"; setSingleLine(); imeOptions = EditorInfo.IME_ACTION_SEARCH
-                  }
-                  val go = Button(this).apply { text = "Search" }
+                  val input = EditText(this).apply { hint = "Song search karo"; setSingleLine(); imeOptions = EditorInfo.IME_ACTION_SEARCH }
+                  val go = btn("Search")
                   row.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
                   row.addView(go)
-                  header = TextView(this).apply { textSize = 18f; setPadding(0, 16, 0, 8) }
+                  val chips = LinearLayout(this)
+                  btnSongs = btn("Songs"); btnVideos = btn("Videos")
+                  chips.addView(btnSongs, LinearLayout.LayoutParams(0, -2, 1f))
+                  chips.addView(btnVideos, LinearLayout.LayoutParams(0, -2, 1f))
+                  header = TextView(this).apply { textSize = 18f; setPadding(0, dp(8), 0, dp(4)) }
                   list = ListView(this)
-                  now = TextView(this).apply { text = "Kuch play nahi ho raha"; setPadding(0, 12, 0, 12) }
-                  val pp = Button(this).apply { text = "Pause / Play" }
-                  root.addView(row)
-                  root.addView(header)
+                  status = TextView(this)
+
+                  panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+                  val frame = FrameLayout(this).apply { setBackgroundColor(0xFF111111.toInt()) }
+                  art = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+                  playerView = PlayerView(this).apply { visibility = View.GONE }
+                  playerView.player = player
+                  frame.addView(art, FrameLayout.LayoutParams(-1, -1))
+                  frame.addView(playerView, FrameLayout.LayoutParams(-1, -1))
+                  title = TextView(this).apply { textSize = 16f; setPadding(0, dp(8), 0, dp(4)) }
+                  val modes = LinearLayout(this).apply { gravity = Gravity.CENTER }
+                  btnSong = btn("Song"); btnVideo = btn("Video"); btnVideo.isEnabled = false
+                  modes.addView(btnSong); modes.addView(btnVideo)
+                  seekRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+                  seek = SeekBar(this)
+                  timeTv = TextView(this)
+                  seekRow.addView(seek, LinearLayout.LayoutParams(0, -2, 1f))
+                  seekRow.addView(timeTv)
+                  ppBtn = btn("Play")
+                  panel.addView(frame, LinearLayout.LayoutParams(-1, dp(220)))
+                  panel.addView(title)
+                  panel.addView(modes)
+                  panel.addView(seekRow)
+                  panel.addView(ppBtn)
+
+                  root.addView(row); root.addView(chips); root.addView(header)
                   root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
-                  root.addView(now)
-                  root.addView(pp)
+                  root.addView(status); root.addView(panel)
                   setContentView(root)
 
-                  list.setOnItemClickListener { _, _, pos, _ -> play(items[pos]) }
+                  list.setOnItemClickListener { _, _, pos, _ -> play(items[pos], tab == "music_videos") }
                   go.setOnClickListener {
                       val q = input.text.toString().trim()
-                      if (q.isNotEmpty()) load("Results: $q") { search(q) }
+                      if (q.isNotEmpty()) { query = q; refresh() }
                   }
                   input.setOnEditorActionListener { _, _, _ -> go.performClick(); true }
-                  pp.setOnClickListener { if (player.isPlaying) player.pause() else player.play() }
-
-                  load("Trending") { trending() }
+                  btnSongs.setOnClickListener { tab = "music_songs"; refresh() }
+                  btnVideos.setOnClickListener { tab = "music_videos"; refresh() }
+                  btnSong.setOnClickListener { info?.let { start(it, false, player.currentPosition) } }
+                  btnVideo.setOnClickListener { info?.let { start(it, true, player.currentPosition) } }
+                  ppBtn.setOnClickListener { if (player.isPlaying) player.pause() else player.play() }
+                  seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                      override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) { if (fromUser) player.seekTo(p * 1000L) }
+                      override fun onStartTrackingTouch(sb: SeekBar?) {}
+                      override fun onStopTrackingTouch(sb: SeekBar?) {}
+                  })
+                  ui.post(object : Runnable {
+                      override fun run() {
+                          val d = player.duration
+                          if (d > 0) {
+                              seek.max = (d / 1000).toInt()
+                              seek.progress = (player.currentPosition / 1000).toInt()
+                              timeTv.text = " ${fmt(player.currentPosition / 1000)} / ${fmt(d / 1000)}"
+                          }
+                          ui.postDelayed(this, 500)
+                      }
+                  })
+                  refresh()
               }
 
-              private fun load(title: String, task: () -> List<StreamInfoItem>) {
+              private fun refresh() {
+                  btnSongs.alpha = if (tab == "music_songs") 1f else 0.5f
+                  btnVideos.alpha = if (tab == "music_videos") 1f else 0.5f
+                  val q = query ?: if (tab == "music_songs") "trending songs" else "trending music videos"
+                  val title = if (query == null) "Trending" else "Results: $q"
                   header.text = "$title ..."
                   Thread {
                       try {
-                          val r = task()
-                          runOnUiThread {
-                              items = r
-                              header.text = title
-                              list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1,
-                                  r.map { "${it.name}\n${it.uploaderName ?: ""}" })
-                          }
+                          val r = search(q)
+                          runOnUiThread { items = r; header.text = title; list.adapter = RowAdapter(r) }
                       } catch (e: Throwable) {
                           runOnUiThread { header.text = "Error: ${e.stackTraceToString().take(1200)}" }
                       }
@@ -324,35 +400,69 @@ jobs:
               }
 
               private fun search(q: String): List<StreamInfoItem> {
-                  val ex = ServiceList.YouTube.getSearchExtractor(q)
+                  val ex = ServiceList.YouTube.getSearchExtractor(q, listOf(tab), "")
                   ex.fetchPage()
-                  return ex.initialPage.items.filterIsInstance<StreamInfoItem>()
+                  val r = ex.initialPage.items.filterIsInstance<StreamInfoItem>()
+                  if (r.isNotEmpty()) return r
+                  val ex2 = ServiceList.YouTube.getSearchExtractor(q)
+                  ex2.fetchPage()
+                  return ex2.initialPage.items.filterIsInstance<StreamInfoItem>()
               }
 
-              private fun trending(): List<StreamInfoItem> = search("trending music songs")
-
-              private fun play(i: StreamInfoItem) {
-                  now.text = "Loading: ${i.name}"
+              private fun play(i: StreamInfoItem, asVideo: Boolean) {
+                  panel.visibility = View.VISIBLE
+                  title.text = "${i.name}\n${i.uploaderName ?: ""}"
+                  art.load(thumb(i))
+                  status.text = "Loading..."
+                  player.stop()
                   Thread {
                       try {
-                          val info = StreamInfo.getInfo(ServiceList.YouTube, i.url)
-                          val a = info.audioStreams
-                              .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
-                              .maxByOrNull { it.averageBitrate }
-                              ?: throw Exception("Audio stream nahi mila")
+                          val si = StreamInfo.getInfo(ServiceList.YouTube, i.url)
                           runOnUiThread {
-                              player.setMediaItem(MediaItem.fromUri(a.content))
-                              player.prepare()
-                              player.play()
-                              now.text = "Playing: ${i.name}"
+                              info = si
+                              val hasVideo = bestVideo(si) != null
+                              btnVideo.isEnabled = hasVideo
+                              start(si, asVideo && hasVideo, 0)
                           }
                       } catch (e: Throwable) {
-                          runOnUiThread { now.text = "Error: ${e.stackTraceToString().take(1200)}" }
+                          runOnUiThread { status.text = "Error: ${e.stackTraceToString().take(1200)}" }
                       }
                   }.start()
               }
 
-              override fun onDestroy() { player.release(); super.onDestroy() }
+              private fun start(si: StreamInfo, video: Boolean, pos: Long) {
+                  val url = if (video) bestVideo(si)?.content else bestAudio(si)?.content
+                  if (url == null) { status.text = "Stream nahi mila"; return }
+                  playerView.visibility = if (video) View.VISIBLE else View.GONE
+                  art.visibility = if (video) View.GONE else View.VISIBLE
+                  seekRow.visibility = if (video) View.GONE else View.VISIBLE
+                  player.setMediaItem(MediaItem.fromUri(url))
+                  player.prepare()
+                  if (pos > 0) player.seekTo(pos)
+                  player.play()
+                  status.text = ""
+              }
+
+              inner class RowAdapter(private val data: List<StreamInfoItem>) : BaseAdapter() {
+                  override fun getCount() = data.size
+                  override fun getItem(p: Int) = data[p]
+                  override fun getItemId(p: Int) = p.toLong()
+                  override fun getView(p: Int, v: View?, parent: ViewGroup?): View {
+                      val ctx = this@MainActivity
+                      val row = (v as? LinearLayout) ?: LinearLayout(ctx).apply {
+                          gravity = Gravity.CENTER_VERTICAL
+                          setPadding(0, dp(6), 0, dp(6))
+                          addView(ImageView(ctx).apply { scaleType = ImageView.ScaleType.CENTER_CROP }, LinearLayout.LayoutParams(dp(64), dp(64)))
+                          addView(TextView(ctx).apply { setPadding(dp(12), 0, 0, 0); maxLines = 3 }, LinearLayout.LayoutParams(0, -2, 1f))
+                      }
+                      val it = data[p]
+                      (row.getChildAt(0) as ImageView).load(thumb(it))
+                      (row.getChildAt(1) as TextView).text = "${it.name}\n${it.uploaderName ?: ""}"
+                      return row
+                  }
+              }
+
+              override fun onDestroy() { ui.removeCallbacksAndMessages(null); player.release(); super.onDestroy() }
           }
           EOF
 
