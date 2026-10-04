@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -261,32 +262,53 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     _resolving = true;
     state = state.copyWith(loading: true, playing: false, duration: s.duration, clearError: true);
     var stage = 'stream';
+    String? url;
     try {
-      final url = s.audioUrl.isNotEmpty ? s.audioUrl : await ref.read(musicRepoProvider).streamUrl(s);
+      url = s.audioUrl.isNotEmpty ? s.audioUrl : await ref.read(musicRepoProvider).streamUrl(s);
       if (my != _token) return;
       stage = 'player';
-      await _p.setAudioSource(AudioSource.uri(
-        Uri.parse(url),
-        tag: MediaItem(
-          id: s.id,
-          title: s.title,
-          artist: s.artistName,
-          artUri: s.artwork.isEmpty ? null : Uri.parse(s.artwork),
-        ),
-      ));
+      final tag = MediaItem(
+        id: s.id,
+        title: s.title,
+        artist: s.artistName,
+        artUri: s.artwork.isEmpty ? null : Uri.parse(s.artwork),
+      );
+      try {
+        await _p.setAudioSource(AudioSource.uri(Uri.parse(url), tag: tag));
+      } catch (_) {
+        if (my != _token) return;
+        // ExoPlayer could not open the URL directly; fetch it ourselves and feed the bytes.
+        stage = 'proxy';
+        await _p.setAudioSource(_HttpStreamSource(url, kUserAgent, tag));
+      }
       if (my != _token) return;
       _resolving = false;
       _p.play();
     } catch (e) {
       if (my == _token) {
         _resolving = false;
-        final msg = e.toString().replaceAll('\n', ' ');
+        var msg = e.toString().replaceAll('\n', ' ');
+        if (url != null) msg = '$msg | ${await _probe(url)}';
         state = state.copyWith(
           loading: false,
           playing: false,
-          error: 'Play failed [$stage]: ${msg.length > 220 ? msg.substring(0, 220) : msg}',
+          error: 'Play failed [$stage]: ${msg.length > 260 ? msg.substring(0, 260) : msg}',
         );
       }
+    }
+  }
+
+  Future<String> _probe(String url) async {
+    try {
+      final c = HttpClient()..userAgent = kUserAgent;
+      final req = await c.getUrl(Uri.parse(url));
+      req.headers.set('Range', 'bytes=0-1');
+      final res = await req.close().timeout(const Duration(seconds: 10));
+      await res.drain<void>();
+      c.close();
+      return 'probe HTTP ${res.statusCode} ${res.headers.contentType?.mimeType}';
+    } catch (e) {
+      return 'probe failed: $e';
     }
   }
 
@@ -395,3 +417,30 @@ final playerProvider = NotifierProvider<PlayerNotifier, PlayerStatus>(PlayerNoti
 
 final positionProvider =
     StreamProvider<Duration>((ref) => ref.watch(playerProvider.notifier).positionStream);
+
+/// Fallback source: downloads ranges with dart:io and serves them to the native player.
+class _HttpStreamSource extends StreamAudioSource {
+  _HttpStreamSource(this.url, this.userAgent, MediaItem tag) : super(tag: tag);
+  final String url, userAgent;
+
+  @override
+  Future<StreamAudioResponse> request([int? start, int? end]) async {
+    final c = HttpClient()..userAgent = userAgent;
+    final req = await c.getUrl(Uri.parse(url));
+    req.headers.set('Range', 'bytes=${start ?? 0}-${end != null ? end - 1 : ''}');
+    final res = await req.close();
+    if (res.statusCode >= 400) throw Exception('HTTP ${res.statusCode}');
+    int? total;
+    final cr = res.headers.value('content-range');
+    if (cr != null && cr.contains('/')) total = int.tryParse(cr.split('/').last);
+    final partial = res.statusCode == 206;
+    total ??= res.contentLength > 0 && !partial ? res.contentLength : null;
+    return StreamAudioResponse(
+      sourceLength: total,
+      contentLength: res.contentLength > 0 ? res.contentLength : null,
+      offset: partial ? (start ?? 0) : 0,
+      stream: res,
+      contentType: res.headers.contentType?.mimeType ?? 'audio/mp4',
+    );
+  }
+}

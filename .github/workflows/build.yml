@@ -38,7 +38,7 @@ jobs:
                             '<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools"', 1)
           perms = ''.join('    <uses-permission android:name="android.permission.%s"/>\n' % x
                           for x in ['INTERNET', 'WAKE_LOCK', 'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_MEDIA_PLAYBACK'])
-          s = s.replace('<application', perms + '    <application', 1)
+          s = s.replace('<application', perms + '    <application android:usesCleartextTraffic="true"', 1)
           svc = '''    <service android:name="com.ryanheise.audioservice.AudioService" android:foregroundServiceType="mediaPlayback" android:exported="true" tools:ignore="Instantiatable">
               <intent-filter><action android:name="android.media.browse.MediaBrowserService"/></intent-filter>
             </service>
