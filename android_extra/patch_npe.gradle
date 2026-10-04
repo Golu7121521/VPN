@@ -6,6 +6,7 @@ repositories {
 
 android {
   compileOptions { coreLibraryDesugaringEnabled true }
+  buildTypes.all { proguardFile file('proguard-extra.pro') }
   packaging {
     resources.excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/INDEX.LIST']
   }

@@ -58,6 +58,7 @@ jobs:
           shutil.copy('android_extra/MainActivity.kt', kd + '/MainActivity.kt')
           shutil.copy('android_extra/UrlCompat.java', jd + '/UrlCompat.java')
           shutil.copy('android_extra/patch_npe.gradle', 'android/app/patch_npe.gradle')
+          shutil.copy('android_extra/proguard-extra.pro', 'android/app/proguard-extra.pro')
           with open('android/app/build.gradle.kts', 'a') as g:
               g.write('\napply(from = "patch_npe.gradle")\n')
           PY
