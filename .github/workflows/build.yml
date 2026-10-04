@@ -66,9 +66,9 @@ jobs:
       - run: flutter pub get
 
       - name: Build APK
-        run: flutter build apk --release --no-shrink
+        run: flutter build apk --profile
 
       - uses: actions/upload-artifact@v4
         with:
           name: musify-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/app-profile.apk
