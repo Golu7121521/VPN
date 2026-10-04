@@ -97,7 +97,7 @@ class CollectionScreen extends ConsumerWidget {
             ),
         ],
       ),
-      body: ListView(padding: const EdgeInsets.only(bottom: 24), children: [
+      body: ListView(padding: const EdgeInsets.only(bottom: 130), children: [
         Center(
           child: Container(
             decoration: BoxDecoration(
@@ -172,7 +172,11 @@ class ArtistScreen extends ConsumerWidget {
     return Scaffold(
       body: ListView(padding: EdgeInsets.zero, children: [
         Stack(children: [
-          SizedBox(height: 300, width: double.infinity, child: Artwork(image, radius: 0)),
+          SizedBox(
+            height: 300,
+            width: double.infinity,
+            child: ArtistImage(name, fallback: image, circle: false, radius: 0),
+          ),
           Container(
             height: 300,
             decoration: const BoxDecoration(
@@ -205,6 +209,7 @@ class ArtistScreen extends ConsumerWidget {
             count: related.length,
             itemBuilder: (_, i) => PosterCard(
               imageUrl: related[i].image,
+              image: ArtistImage(related[i].name, fallback: related[i].image, size: w * .7),
               title: related[i].name,
               subtitle: 'Artist',
               width: w * .7,
@@ -213,7 +218,7 @@ class ArtistScreen extends ConsumerWidget {
             ),
           ),
         ],
-        const SizedBox(height: 24),
+        const SizedBox(height: 130),
       ]),
     );
   }

@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +12,15 @@ import 'theme.dart';
 String fmt(Duration d) {
   final s = d.inSeconds;
   return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
+}
+
+/// Asks Google image servers for a bigger version so artwork stays sharp.
+String resizeArt(String url, int px) {
+  if (url.contains('googleusercontent.com') || url.contains('ggpht.com')) {
+    final re = RegExp(r'=(w\d+-h\d+|s\d+)');
+    if (re.hasMatch(url)) return url.replaceFirst(re, '=w$px-h$px');
+  }
+  return url;
 }
 
 class Artwork extends StatelessWidget {
@@ -25,20 +36,42 @@ class Artwork extends StatelessWidget {
       color: AppColors.surfaceVariant,
       child: Center(child: Icon(Icons.music_note_rounded, color: AppColors.textSecondary)),
     );
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final px = ((size ?? 700) * dpr).round().clamp(120, 1200);
     return ClipRRect(
       borderRadius: BorderRadius.circular(circle ? 999 : radius),
       child: SizedBox(
         width: size,
         height: size,
-        child: CachedNetworkImage(
-          imageUrl: url,
-          fit: BoxFit.cover,
-          memCacheWidth: 600,
-          placeholder: (_, __) => const ColoredBox(color: AppColors.surfaceVariant),
-          errorWidget: (_, __, ___) => fallback,
-        ),
+        child: url.isEmpty
+            ? fallback
+            : CachedNetworkImage(
+                imageUrl: resizeArt(url, px),
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+                placeholder: (_, __) => const ColoredBox(color: AppColors.surfaceVariant),
+                errorWidget: (_, __, ___) => fallback,
+              ),
       ),
     );
+  }
+}
+
+/// Shows the artist's own photo (looked up once and cached), never a song cover.
+class ArtistImage extends ConsumerWidget {
+  const ArtistImage(this.name, {super.key, this.fallback = '', this.size, this.circle = true, this.radius = 12});
+  final String name, fallback;
+  final double? size;
+  final bool circle;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(artistImageProvider(name)).when(
+          data: (u) => Artwork((u != null && u.isNotEmpty) ? u : fallback, size: size, circle: circle, radius: radius),
+          loading: () => Artwork('', size: size, circle: circle, radius: radius),
+          error: (_, __) => Artwork(fallback, size: size, circle: circle, radius: radius),
+        );
   }
 }
 
@@ -92,7 +125,9 @@ class PosterCard extends StatelessWidget {
     required this.width,
     required this.onTap,
     this.circle = false,
+    this.image,
   });
+  final Widget? image;
   final String imageUrl, title, subtitle;
   final double width;
   final VoidCallback onTap;
@@ -108,7 +143,7 @@ class PosterCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: circle ? CrossAxisAlignment.center : CrossAxisAlignment.start,
           children: [
-            Artwork(imageUrl, size: width, radius: 16, circle: circle),
+            image ?? Artwork(imageUrl, size: width, radius: 16, circle: circle),
             const SizedBox(height: 8),
             Text(title,
                 maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: align,
@@ -264,10 +299,14 @@ class MiniPlayer extends ConsumerWidget {
         if (v > 300) ctl.previous();
       },
       child: Container(
-        margin: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-        decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(16)),
-        clipBehavior: Clip.antiAlias,
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
+        margin: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+            child: ColoredBox(
+              color: AppColors.surfaceVariant.withAlpha(128),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
             child: Row(children: [
@@ -291,6 +330,9 @@ class MiniPlayer extends ConsumerWidget {
           ),
           const _MiniProgress(),
         ]),
+            ),
+          ),
+        ),
       ),
     );
   }

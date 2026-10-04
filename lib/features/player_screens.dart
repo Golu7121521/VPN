@@ -7,11 +7,38 @@ import '../core/widgets.dart';
 import '../data/models.dart';
 import '../state/providers.dart';
 
-class NowPlayingScreen extends ConsumerWidget {
+class NowPlayingScreen extends ConsumerStatefulWidget {
   const NowPlayingScreen({super.key});
+  @override
+  ConsumerState<NowPlayingScreen> createState() => _NowPlayingScreenState();
+}
+
+class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 240));
+  double _dy = 0, _from = 0, _to = 0;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void initState() {
+    super.initState();
+    _c.addListener(() => setState(() => _dy = _from + (_to - _from) * Curves.easeOutCubic.transform(_c.value)));
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  void _run(double to, {bool pop = false}) {
+    _from = _dy;
+    _to = to;
+    _c.forward(from: 0).then((_) {
+      if (pop && mounted) context.pop();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final song = ref.watch(playerProvider.select((s) => s.current));
     if (song == null) {
       return Scaffold(
@@ -26,7 +53,7 @@ class NowPlayingScreen extends ConsumerWidget {
     final liked = ref.watch(likesProvider).contains(song.id);
     final ctl = ref.read(playerProvider.notifier);
 
-    return Scaffold(
+    final page = Scaffold(
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -152,6 +179,19 @@ class NowPlayingScreen extends ConsumerWidget {
           ),
         ),
       ),
+    );
+    // Pull down to shrink back into the mini player.
+    return GestureDetector(
+      onVerticalDragUpdate: (d) => setState(() => _dy = (_dy + d.delta.dy).clamp(0.0, double.infinity)),
+      onVerticalDragEnd: (d) {
+        final v = d.primaryVelocity ?? 0;
+        if (_dy > 140 || v > 800) {
+          _run(MediaQuery.sizeOf(context).height, pop: true);
+        } else {
+          _run(0);
+        }
+      },
+      child: Transform.translate(offset: Offset(0, _dy), child: page),
     );
   }
 }

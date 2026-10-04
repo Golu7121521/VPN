@@ -33,6 +33,10 @@ final artistsProvider = FutureProvider<List<Artist>>((ref) async {
   return artistsFrom([...a, ...b]).take(10).toList();
 });
 final playlistsProvider = FutureProvider<List<Playlist>>((ref) async => featuredPlaylists);
+final artistImageProvider =
+    FutureProvider.family<String?, String>((ref, name) => ref.watch(musicRepoProvider).artistImage(name));
+final suggestionsProvider = FutureProvider.family<List<String>, String>(
+    (ref, q) => ref.watch(musicRepoProvider).suggestions(q));
 final lyricsProvider = FutureProvider.family<List<LyricLine>, String>(
     (ref, id) => ref.watch(musicRepoProvider).lyrics(id));
 final searchProvider =
@@ -168,7 +172,9 @@ class PlayerStatus {
     this.duration = Duration.zero,
     this.history = const [],
     this.error,
+    this.openCount = 0,
   });
+  final int openCount;
   final List<Song> queue;
   final int index;
   final bool playing, loading, shuffle;
@@ -189,6 +195,7 @@ class PlayerStatus {
     Duration? duration,
     List<Song>? history,
     String? error,
+    int? openCount,
     bool clearError = false,
   }) =>
       PlayerStatus(
@@ -201,6 +208,7 @@ class PlayerStatus {
         duration: duration ?? this.duration,
         history: history ?? this.history,
         error: clearError ? null : (error ?? this.error),
+        openCount: openCount ?? this.openCount,
       );
 }
 
@@ -250,7 +258,8 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
 
   Future<void> playQueue(List<Song> songs, int index) async {
     if (songs.isEmpty) return;
-    state = state.copyWith(queue: songs, index: index, history: _hist(songs[index]));
+    state = state.copyWith(
+        queue: songs, index: index, history: _hist(songs[index]), openCount: state.openCount + 1);
     await _load();
   }
 
@@ -264,8 +273,9 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     var stage = 'stream';
     String? url;
     try {
-      url = s.audioUrl.isNotEmpty ? s.audioUrl : await ref.read(musicRepoProvider).streamUrl(s);
+      final urls = s.audioUrl.isNotEmpty ? [s.audioUrl] : await ref.read(musicRepoProvider).streamUrls(s);
       if (my != _token) return;
+      url = urls.first;
       stage = 'player';
       final tag = MediaItem(
         id: s.id,
@@ -273,13 +283,20 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
         artist: s.artistName,
         artUri: s.artwork.isEmpty ? null : Uri.parse(s.artwork),
       );
-      try {
-        await _p.setAudioSource(AudioSource.uri(Uri.parse(url), tag: tag));
-      } catch (_) {
-        if (my != _token) return;
-        // ExoPlayer could not open the URL directly; fetch it ourselves and feed the bytes.
+      var ok = false;
+      for (final u in urls) {
+        try {
+          await _p.setAudioSource(AudioSource.uri(Uri.parse(u), tag: tag));
+          ok = true;
+          break;
+        } catch (_) {
+          if (my != _token) return;
+        }
+      }
+      if (!ok) {
+        // ExoPlayer could not open any URL directly; fetch it ourselves and feed the bytes.
         stage = 'proxy';
-        await _p.setAudioSource(_HttpStreamSource(url, kUserAgent, tag));
+        await _p.setAudioSource(_HttpStreamSource(urls.first, kUserAgent, tag));
       }
       if (my != _token) return;
       _resolving = false;

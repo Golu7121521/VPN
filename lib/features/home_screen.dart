@@ -25,11 +25,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ref.invalidate(artistsProvider);
   }
 
-  String get _greeting {
-    final h = DateTime.now().hour;
-    return h < 12 ? 'Good Morning' : (h < 17 ? 'Good Afternoon' : 'Good Evening');
-  }
-
   @override
   Widget build(BuildContext context) {
     final songs = ref.watch(songsProvider);
@@ -37,14 +32,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final Widget body;
     if (songs.hasError) {
-      body = ErrorState(onRetry: _retry);
+      body = SliverFillRemaining(hasScrollBody: false, child: ErrorState(onRetry: _retry));
     } else if (!songs.hasValue || !playlists.hasValue) {
-      body = const LoadingState();
+      body = const SliverFillRemaining(hasScrollBody: false, child: LoadingState());
     } else if (_chip > 1) {
-      body = const EmptyState(
-        icon: Icons.podcasts,
-        title: 'Coming soon',
-        message: 'Podcasts and live shows will appear here.',
+      body = const SliverFillRemaining(
+        hasScrollBody: false,
+        child: EmptyState(
+          icon: Icons.podcasts,
+          title: 'Coming soon',
+          message: 'Podcasts and live shows will appear here.',
+        ),
       );
     } else {
       body = _Content(
@@ -58,58 +56,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return SafeArea(
       bottom: false,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
-          child: Row(children: [
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(_greeting, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
-                const Text("Let's play something you love", style: TextStyle(color: AppColors.textSecondary)),
-              ]),
-            ),
+      child: CustomScrollView(slivers: [
+        // App name on the left, search on the right; hides while scrolling down.
+        SliverAppBar(
+          floating: true,
+          snap: true,
+          automaticallyImplyLeading: false,
+          centerTitle: false,
+          backgroundColor: AppColors.background,
+          surfaceTintColor: Colors.transparent,
+          titleSpacing: 16,
+          title: const Text(
+            'MUSIFY',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, color: AppColors.primary),
+          ),
+          actions: [
             IconButton(
-              tooltip: 'Notifications',
-              icon: const Badge(smallSize: 8, child: Icon(Icons.notifications_none_rounded)),
-              onPressed: () => showNotifications(context),
+              tooltip: 'Search',
+              icon: const Icon(Icons.search_rounded, size: 28),
+              onPressed: () => context.go('/search'),
             ),
-            Semantics(
-              button: true,
-              label: 'Profile',
-              child: GestureDetector(
-                onTap: () => context.push('/profile'),
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: CircleAvatar(
-                    radius: 18,
-                    backgroundColor: AppColors.primary,
-                    child: Icon(Icons.person_rounded, color: Colors.white),
-                  ),
-                ),
-              ),
-            ),
-          ]),
+            const SizedBox(width: 4),
+          ],
         ),
-        SizedBox(
-          height: 44,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            itemCount: _chips.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (_, i) => ChoiceChip(
-              label: Text(_chips[i]),
-              selected: _chip == i,
-              showCheckmark: false,
-              selectedColor: AppColors.primary,
-              backgroundColor: AppColors.surfaceVariant,
-              side: BorderSide.none,
-              shape: const StadiumBorder(),
-              onSelected: (_) => setState(() => _chip = i),
+        SliverToBoxAdapter(
+          child: SizedBox(
+            height: 48,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              itemCount: _chips.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, i) => ChoiceChip(
+                label: Text(_chips[i]),
+                selected: _chip == i,
+                showCheckmark: false,
+                selectedColor: AppColors.primary,
+                backgroundColor: AppColors.surfaceVariant,
+                side: BorderSide.none,
+                shape: const StadiumBorder(),
+                onSelected: (_) => setState(() => _chip = i),
+              ),
             ),
           ),
         ),
-        Expanded(child: body),
+        body,
       ]),
     );
   }
@@ -153,56 +144,60 @@ class _Content extends ConsumerWidget {
           ),
         );
 
-    return ListView(padding: const EdgeInsets.only(bottom: 24), children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-        child: _Hero(onPlay: () => ctl.playQueue(trending, 0)),
-      ),
-      const SectionHeader('Trending Now'),
-      songRow(trending, w),
-      const SectionHeader('Made For You'),
-      HList(
-        height: w + 58,
-        count: playlists.length,
-        itemBuilder: (_, i) => PosterCard(
-          imageUrl: playlists[i].cover,
-          title: playlists[i].name,
-          subtitle: playlists[i].description,
-          width: w,
-          onTap: () => context.push('/playlist/${playlists[i].id}'),
+    return SliverList(
+      delegate: SliverChildListDelegate([
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: _Hero(onPlay: () => ctl.playQueue(trending, 0)),
         ),
-      ),
-      if (hist.isNotEmpty) ...[
-        const SectionHeader('Recently Played'),
-        songRow(hist, w * .75),
-      ],
-      const SectionHeader('Popular Artists'),
-      _wait(
-        artists,
-        (list) => HList(
-          height: w * .7 + 50,
-          count: list.length,
+        const SectionHeader('Trending Now'),
+        songRow(trending, w),
+        const SectionHeader('Made For You'),
+        HList(
+          height: w + 58,
+          count: playlists.length,
           itemBuilder: (_, i) => PosterCard(
-            imageUrl: list[i].image,
-            title: list[i].name,
-            subtitle: 'Artist',
-            width: w * .7,
-            circle: true,
-            onTap: () => context.push('/artist/${Uri.encodeComponent(list[i].id)}'),
+            imageUrl: playlists[i].cover,
+            title: playlists[i].name,
+            subtitle: playlists[i].description,
+            width: w,
+            onTap: () => context.push('/playlist/${playlists[i].id}'),
           ),
         ),
-      ),
-      const SectionHeader('New Releases'),
-      _wait(fresh, (list) => songRow(list, w)),
-      const SectionHeader('Recommended For You'),
-      _wait(
-        rec,
-        (list) => Column(children: [
-          for (var i = 0; i < list.length && i < 10; i++)
-            SongTile(song: list[i], onTap: () => ctl.playQueue(list, i)),
-        ]),
-      ),
-    ]);
+        if (hist.isNotEmpty) ...[
+          const SectionHeader('Recently Played'),
+          songRow(hist, w * .75),
+        ],
+        const SectionHeader('Popular Artists'),
+        _wait(
+          artists,
+          (list) => HList(
+            height: w * .7 + 50,
+            count: list.length,
+            itemBuilder: (_, i) => PosterCard(
+              imageUrl: list[i].image,
+              image: ArtistImage(list[i].name, fallback: list[i].image, size: w * .7),
+              title: list[i].name,
+              subtitle: 'Artist',
+              width: w * .7,
+              circle: true,
+              onTap: () => context.push('/artist/${Uri.encodeComponent(list[i].id)}'),
+            ),
+          ),
+        ),
+        const SectionHeader('New Releases'),
+        _wait(fresh, (list) => songRow(list, w)),
+        const SectionHeader('Recommended For You'),
+        _wait(
+          rec,
+          (list) => Column(children: [
+            for (var i = 0; i < list.length && i < 10; i++)
+              SongTile(song: list[i], onTap: () => ctl.playQueue(list, i)),
+          ]),
+        ),
+        const SizedBox(height: 130),
+      ]),
+    );
   }
 }
 

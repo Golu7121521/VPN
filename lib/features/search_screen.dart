@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -16,10 +18,13 @@ class SearchScreen extends ConsumerStatefulWidget {
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _c = TextEditingController();
-  String _q = '';
+  Timer? _debounce;
+  String _q = ''; // submitted query -> results
+  String _typed = ''; // text being typed -> suggestions
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _c.dispose();
     super.dispose();
   }
@@ -27,12 +32,25 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   void _submit(String v) {
     final q = v.trim();
     if (q.isEmpty) return;
+    FocusScope.of(context).unfocus();
     ref.read(recentsProvider.notifier).add(q);
-    setState(() => _q = q);
+    setState(() {
+      _q = q;
+      _typed = q;
+    });
+  }
+
+  void _onChanged(String v) {
+    _debounce?.cancel();
+    setState(() => _q = '');
+    _debounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) setState(() => _typed = v.trim());
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final Widget body = _q.isNotEmpty ? _results() : (_typed.isNotEmpty ? _suggestions() : _browse());
     return SafeArea(
       bottom: false,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -45,9 +63,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           child: TextField(
             controller: _c,
             textInputAction: TextInputAction.search,
-            onChanged: (v) => setState(() {
-              if (v.trim().isEmpty) _q = '';
-            }),
+            onChanged: _onChanged,
             onSubmitted: _submit,
             decoration: InputDecoration(
               hintText: 'Search songs, artists, albums...',
@@ -60,6 +76,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       onPressed: () => setState(() {
                         _c.clear();
                         _q = '';
+                        _typed = '';
                       }),
                     ),
               filled: true,
@@ -69,14 +86,45 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        Expanded(child: _q.isEmpty ? _browse() : _results()),
+        Expanded(child: body),
+      ]),
+    );
+  }
+
+  Widget _suggestions() {
+    final v = ref.watch(suggestionsProvider(_typed));
+    return v.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => ListTile(
+        leading: const Icon(Icons.search_rounded, color: AppColors.textSecondary),
+        title: Text(_typed),
+        onTap: () => _submit(_typed),
+      ),
+      data: (list) => ListView(padding: const EdgeInsets.only(bottom: 130), children: [
+        for (final s in list)
+          ListTile(
+            leading: const Icon(Icons.search_rounded, color: AppColors.textSecondary),
+            title: Text(s),
+            trailing: IconButton(
+              tooltip: 'Use suggestion',
+              icon: const Icon(Icons.north_west_rounded, color: AppColors.textSecondary, size: 20),
+              onPressed: () {
+                _c.value = TextEditingValue(text: s, selection: TextSelection.collapsed(offset: s.length));
+                _onChanged(s);
+              },
+            ),
+            onTap: () {
+              _c.text = s;
+              _submit(s);
+            },
+          ),
       ]),
     );
   }
 
   Widget _browse() {
     final recents = ref.watch(recentsProvider);
-    return ListView(padding: const EdgeInsets.only(bottom: 24), children: [
+    return ListView(padding: const EdgeInsets.only(bottom: 130), children: [
       const SectionHeader('Browse All'),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -158,9 +206,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 r.artists.length,
                 'No artists found',
                 (i) => ListTile(
-                  leading: Artwork(r.artists[i].image, size: 52, circle: true),
+                  leading: ArtistImage(r.artists[i].name, fallback: r.artists[i].image, size: 52),
                   title: Text(r.artists[i].name),
-                  subtitle: Text(r.artists[i].listeners, style: const TextStyle(color: AppColors.textSecondary)),
+                  subtitle: const Text('Artist', style: TextStyle(color: AppColors.textSecondary)),
                   onTap: () => context.push('/artist/${Uri.encodeComponent(r.artists[i].id)}'),
                 ),
               ),
@@ -185,6 +233,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     if (count == 0) {
       return EmptyState(icon: Icons.search_off_rounded, title: empty, message: 'Try a different search.');
     }
-    return ListView.builder(itemCount: count, itemBuilder: (_, i) => item(i));
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 130),
+      itemCount: count,
+      itemBuilder: (_, i) => item(i),
+    );
   }
 }

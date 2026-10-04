@@ -6,7 +6,9 @@ import 'models.dart';
 /// Screens depend only on these interfaces.
 abstract class MusicRepository {
   Future<List<Song>> songs(String query);
-  Future<String> streamUrl(Song song);
+  Future<List<String>> streamUrls(Song song);
+  Future<List<String>> suggestions(String query);
+  Future<String?> artistImage(String name);
   Future<List<LyricLine>> lyrics(String songId);
 }
 
@@ -25,7 +27,7 @@ List<Artist> artistsFrom(List<Song> songs) {
 /// Real YouTube Music search + streams through NewPipeExtractor (Android, see MainActivity.kt).
 class NewPipeMusicRepository implements MusicRepository {
   static const _ch = MethodChannel('musify/newpipe');
-  final _urls = <String, ({String url, DateTime at})>{};
+  final _urls = <String, ({List<String> urls, DateTime at})>{};
 
   @override
   Future<List<Song>> songs(String query) async {
@@ -46,15 +48,35 @@ class NewPipeMusicRepository implements MusicRepository {
     ];
   }
 
+  final _artistImages = <String, String?>{};
+
   @override
-  Future<String> streamUrl(Song song) async {
+  Future<List<String>> streamUrls(Song song) async {
     final c = _urls[song.id];
-    if (c != null && DateTime.now().difference(c.at) < const Duration(minutes: 20)) return c.url;
+    if (c != null && DateTime.now().difference(c.at) < const Duration(minutes: 20)) return c.urls;
     final m = await _ch.invokeMapMethod<String, dynamic>('stream', {'url': song.id});
-    final url = m?['audio'] as String?;
-    if (url == null) throw Exception('No audio stream');
-    _urls[song.id] = (url: url, at: DateTime.now());
-    return url;
+    final urls = ((m?['audios'] as List?) ?? const []).cast<String>();
+    if (urls.isEmpty) throw Exception('No audio stream');
+    _urls[song.id] = (urls: urls, at: DateTime.now());
+    return urls;
+  }
+
+  @override
+  Future<List<String>> suggestions(String query) async {
+    final r = await _ch.invokeMethod<List<dynamic>>('suggest', {'query': query}) ?? const [];
+    return r.cast<String>();
+  }
+
+  @override
+  Future<String?> artistImage(String name) async {
+    if (_artistImages.containsKey(name)) return _artistImages[name];
+    try {
+      final r = await _ch.invokeMethod<String>('artistImage', {'name': name});
+      _artistImages[name] = r;
+      return r;
+    } catch (_) {
+      return null;
+    }
   }
 
   @override

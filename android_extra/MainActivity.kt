@@ -7,12 +7,15 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.schabi.newpipe.extractor.MediaFormat
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.channel.ChannelInfoItem
+import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
@@ -51,10 +54,12 @@ class MainActivity : AudioServiceActivity() {
                         val out: Any? = when (call.method) {
                             "search" -> search(call.argument<String>("query") ?: "")
                             "stream" -> stream(call.argument<String>("url") ?: "")
+                            "suggest" -> suggest(call.argument<String>("query") ?: "")
+                            "artistImage" -> artistImage(call.argument<String>("name") ?: "")
                             else -> null
                         }
                         main.post {
-                            if (call.method == "search" || call.method == "stream") result.success(out)
+                            if (call.method in listOf("search", "stream", "suggest", "artistImage")) result.success(out)
                             else result.notImplemented()
                         }
                     } catch (e: Throwable) {
@@ -87,10 +92,22 @@ class MainActivity : AudioServiceActivity() {
 
     private fun stream(url: String): Map<String, Any?> {
         val info = StreamInfo.getInfo(ServiceList.YouTube, url)
-        val audio = info.audioStreams
-            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
-            .maxByOrNull { it.averageBitrate }
-            ?: throw Exception("No audio stream found")
-        return mapOf("audio" to audio.content)
+        val prog = info.audioStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+        if (prog.isEmpty()) throw Exception("No audio stream found")
+        // AAC (m4a) first: it plays reliably everywhere; webm/opus only as a fallback.
+        val sorted = prog.sortedWith(
+            compareByDescending<AudioStream> { it.format == MediaFormat.M4A }.thenByDescending { it.averageBitrate }
+        )
+        return mapOf("audios" to sorted.map { it.content })
+    }
+
+    private fun suggest(q: String): List<String> =
+        ServiceList.YouTube.suggestionExtractor.suggestionList(q)
+
+    private fun artistImage(name: String): String? {
+        val ex = ServiceList.YouTube.getSearchExtractor(name, listOf("music_artists"), "")
+        ex.fetchPage()
+        val ch = ex.initialPage.items.filterIsInstance<ChannelInfoItem>().firstOrNull() ?: return null
+        return ch.thumbnails.maxByOrNull { it.height }?.url
     }
 }

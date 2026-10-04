@@ -86,7 +86,7 @@ class LibraryScreen extends ConsumerWidget {
                   : ListView.builder(
                       itemCount: artists.length,
                       itemBuilder: (_, i) => ListTile(
-                        leading: Artwork(artists[i].image, size: 52, circle: true),
+                        leading: ArtistImage(artists[i].name, fallback: artists[i].image, size: 52),
                         title: Text(artists[i].name, style: const TextStyle(fontWeight: FontWeight.w600)),
                         onTap: () => context.push('/artist/${Uri.encodeComponent(artists[i].id)}'),
                       ),

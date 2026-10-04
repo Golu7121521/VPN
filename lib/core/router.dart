@@ -6,8 +6,6 @@ import '../features/detail_screens.dart';
 import '../features/home_screen.dart';
 import '../features/library_screen.dart';
 import '../features/player_screens.dart';
-import '../features/premium_screen.dart';
-import '../features/profile_screens.dart';
 import '../features/search_screen.dart';
 import '../features/splash_screen.dart';
 import '../state/providers.dart';
@@ -23,11 +21,6 @@ final appRouter = GoRouter(
         GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
         GoRoute(path: '/search', builder: (_, __) => const SearchScreen()),
         GoRoute(path: '/library', builder: (_, __) => const LibraryScreen()),
-        GoRoute(path: '/premium', builder: (_, __) => const PremiumScreen()),
-        GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
-        GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
-        GoRoute(path: '/history', builder: (_, __) => const HistoryScreen()),
-        GoRoute(path: '/downloads', builder: (_, __) => const DownloadsScreen()),
         GoRoute(path: '/playlist/:id', builder: (_, s) => CollectionScreen(id: s.pathParameters['id']!)),
         GoRoute(path: '/artist/:name', builder: (_, s) => ArtistScreen(name: s.pathParameters['name']!)),
       ],
@@ -56,7 +49,7 @@ class AppShell extends ConsumerWidget {
   final String location;
   final Widget child;
 
-  static const _tabs = ['/home', '/search', '/library', '/premium'];
+  static const _tabs = ['/home', '/search', '/library'];
   static int _last = 0;
 
   @override
@@ -69,19 +62,37 @@ class AppShell extends ConsumerWidget {
         ref.read(playerProvider.notifier).clearError();
       }
     });
+    // Tapping any song opens the Now Playing screen.
+    ref.listen(playerProvider.select((s) => s.openCount), (prev, next) {
+      if (next > (prev ?? 0)) context.push('/player');
+    });
     return Scaffold(
+      extendBody: true,
       body: child,
       bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
         const MiniPlayer(),
-        NavigationBar(
-          selectedIndex: _last,
-          onDestinationSelected: (i) => context.go(_tabs[i]),
-          destinations: const [
-            NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
-            NavigationDestination(icon: Icon(Icons.search_rounded), label: 'Search'),
-            NavigationDestination(icon: Icon(Icons.library_music_outlined), selectedIcon: Icon(Icons.library_music_rounded), label: 'Library'),
-            NavigationDestination(icon: Icon(Icons.workspace_premium_outlined), selectedIcon: Icon(Icons.workspace_premium_rounded), label: 'Premium'),
-          ],
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0x000B0A10), Color(0xF20B0A10)],
+            ),
+          ),
+          child: NavigationBar(
+            height: 56,
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
+            selectedIndex: _last,
+            onDestinationSelected: (i) => context.go(_tabs[i]),
+            destinations: const [
+              NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
+              NavigationDestination(icon: Icon(Icons.search_rounded), label: 'Search'),
+              NavigationDestination(icon: Icon(Icons.library_music_outlined), selectedIcon: Icon(Icons.library_music_rounded), label: 'Library'),
+            ],
+          ),
         ),
       ]),
     );
