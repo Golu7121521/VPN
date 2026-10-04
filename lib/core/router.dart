@@ -65,7 +65,7 @@ class AppShell extends ConsumerWidget {
     if (i >= 0) _last = i;
     ref.listen(playerProvider.select((s) => s.error), (_, e) {
       if (e != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e)));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e), duration: const Duration(seconds: 12)));
         ref.read(playerProvider.notifier).clearError();
       }
     });

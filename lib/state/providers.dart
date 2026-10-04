@@ -260,9 +260,11 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     _completedHandled = false;
     _resolving = true;
     state = state.copyWith(loading: true, playing: false, duration: s.duration, clearError: true);
+    var stage = 'stream';
     try {
       final url = s.audioUrl.isNotEmpty ? s.audioUrl : await ref.read(musicRepoProvider).streamUrl(s);
       if (my != _token) return;
+      stage = 'player';
       await _p.setAudioSource(AudioSource.uri(
         Uri.parse(url),
         tag: MediaItem(
@@ -275,10 +277,15 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
       if (my != _token) return;
       _resolving = false;
       _p.play();
-    } catch (_) {
+    } catch (e) {
       if (my == _token) {
         _resolving = false;
-        state = state.copyWith(loading: false, playing: false, error: 'Could not play this song.');
+        final msg = e.toString().replaceAll('\n', ' ');
+        state = state.copyWith(
+          loading: false,
+          playing: false,
+          error: 'Play failed [$stage]: ${msg.length > 220 ? msg.substring(0, 220) : msg}',
+        );
       }
     }
   }
