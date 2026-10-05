@@ -37,7 +37,7 @@ jobs:
 
           rm -f test/widget_test.dart
 
-      # Android Manifest + Audio Service + AdMob App ID
+      # Android Manifest + Audio Service + AdMob App ID + Duplicate Class Fix
       - name: Patch Android
         run: |
           python3 - <<'PY'
@@ -204,13 +204,18 @@ jobs:
           )
 
           # ---------------------------------------------------------
-          # 10. Apply NPE patch
+          # 10. Apply NPE patch & Fix AdMob duplicate classes
           # ---------------------------------------------------------
           with open('android/app/build.gradle.kts', 'a') as g:
               g.write('\napply(from = "patch_npe.gradle")\n')
+              
+              # JsR305 Conflict Fix (AdMob)
+              g.write('\nconfigurations.all {\n')
+              g.write('    exclude(group = "com.google.code.findbugs", module = "jsr305")\n')
+              g.write('}\n')
 
           print("Android patch completed successfully.")
-          print("AdMob App ID added successfully.")
+          print("AdMob App ID and dependency fixes applied successfully.")
 
           PY
 
