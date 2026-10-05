@@ -280,7 +280,8 @@ class AsyncView<T> extends StatelessWidget {
 
 // ---------- mini player ----------
 class MiniPlayer extends ConsumerWidget {
-  const MiniPlayer({super.key});
+  const MiniPlayer({super.key, this.hero = true});
+  final bool hero;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -310,7 +311,10 @@ class MiniPlayer extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
             child: Row(children: [
-              Hero(tag: 'now-art', child: Artwork(song.artwork, size: 44, radius: 10)),
+              if (hero)
+                Hero(tag: 'now-art', child: Artwork(song.artwork, size: 44, radius: 10))
+              else
+                Artwork(song.artwork, size: 44, radius: 10),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -535,14 +539,20 @@ class _CreatePlaylistSheetState extends ConsumerState<_CreatePlaylistSheet> {
   }
 }
 
-/// Opens an artist page; closes the full-screen player first so the page is actually visible.
-void openArtist(BuildContext context, String name) {
-  final router = GoRouter.of(context);
-  if (router.routeInformationProvider.value.uri.path == '/player') router.pop();
-  router.push('/artist/${Uri.encodeComponent(name)}');
+/// Opens an artist page (a full-screen route, so it works from the player too).
+void openArtist(BuildContext context, String name) => context.push('/artist/${Uri.encodeComponent(name)}');
+
+/// Opens a YouTube playlist / album / podcast. [kind] is album | playlist | podcast.
+void openCollection(BuildContext context, Playlist p, {String kind = 'playlist'}) {
+  context.push(Uri(path: '/collection', queryParameters: {'u': p.id, 'n': p.name, 'c': p.cover, 'k': kind}).toString());
 }
 
-/// Opens a YouTube playlist / album / podcast.
-void openCollection(BuildContext context, Playlist p) {
-  context.push(Uri(path: '/collection', queryParameters: {'u': p.id, 'n': p.name, 'c': p.cover}).toString());
+/// App logo (circular) used in the header and splash screen.
+class AppLogo extends StatelessWidget {
+  const AppLogo({super.key, this.size = 32});
+  final double size;
+  @override
+  Widget build(BuildContext context) => ClipOval(
+        child: Image.asset('assets/icon.png', width: size, height: size, fit: BoxFit.cover),
+      );
 }

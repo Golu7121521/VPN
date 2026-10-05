@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
 import '../core/widgets.dart';
-import '../data/mock_data.dart';
 import '../data/models.dart';
 import '../state/providers.dart';
 
@@ -124,61 +123,29 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Widget _browse() {
     final recents = ref.watch(recentsProvider);
+    if (recents.isEmpty) {
+      return const EmptyState(
+        icon: Icons.search_rounded,
+        title: 'Search Roxyfy',
+        message: 'Find songs, artists, albums, playlists and podcasts.',
+      );
+    }
     return ListView(padding: const EdgeInsets.only(bottom: 130), children: [
-      const SectionHeader('Browse All'),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          childAspectRatio: 2.1,
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          children: [
-            for (final c in categories)
-              InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () {
-                  _c.text = '${c.$1} songs';
-                  _submit('${c.$1} songs');
-                },
-                child: Ink(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    gradient: LinearGradient(
-                      colors: [c.$2, Color.lerp(c.$2, Colors.black, .45)!],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
-                  child: Align(
-                    alignment: Alignment.bottomLeft,
-                    child: Text(c.$1, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-      if (recents.isNotEmpty) ...[
-        SectionHeader('Recent Searches', action: 'Clear All', onAction: ref.read(recentsProvider.notifier).clear),
-        for (final r in recents)
-          ListTile(
-            leading: const Icon(Icons.history_rounded, color: AppColors.textSecondary),
-            title: Text(r),
-            trailing: IconButton(
-              tooltip: 'Remove',
-              icon: const Icon(Icons.close_rounded, color: AppColors.textSecondary),
-              onPressed: () => ref.read(recentsProvider.notifier).remove(r),
-            ),
-            onTap: () {
-              _c.text = r;
-              _submit(r);
-            },
+      SectionHeader('Recent Searches', action: 'Clear All', onAction: ref.read(recentsProvider.notifier).clear),
+      for (final r in recents)
+        ListTile(
+          leading: const Icon(Icons.history_rounded, color: AppColors.textSecondary),
+          title: Text(r),
+          trailing: IconButton(
+            tooltip: 'Remove',
+            icon: const Icon(Icons.close_rounded, color: AppColors.textSecondary),
+            onPressed: () => ref.read(recentsProvider.notifier).remove(r),
           ),
-      ],
+          onTap: () {
+            _c.text = r;
+            _submit(r);
+          },
+        ),
     ]);
   }
 }
@@ -230,12 +197,12 @@ Widget _songTiles(WidgetRef ref, List<Song> l, {int? max}) {
   return Column(children: [for (var i = 0; i < n; i++) SongTile(song: l[i], onTap: () => ctl.playQueue(l, i))]);
 }
 
-Widget _playlistTile(BuildContext context, Playlist p) => ListTile(
+Widget _playlistTile(BuildContext context, Playlist p, {String kind = 'playlist'}) => ListTile(
       leading: Artwork(p.cover, size: 56, radius: 10),
       title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(p.description, maxLines: 1, overflow: TextOverflow.ellipsis,
           style: const TextStyle(color: AppColors.textSecondary)),
-      onTap: () => openCollection(context, p),
+      onTap: () => openCollection(context, p, kind: kind),
     );
 
 Widget _artistTile(BuildContext context, Artist a) => ListTile(
@@ -268,7 +235,7 @@ class _PlaylistsTab extends ConsumerWidget {
         onRetry: () => ref.invalidate(playlistsFilterProvider(k)),
         builder: (l) => l.isEmpty
             ? _empty(kind)
-            : ListView(padding: const EdgeInsets.only(bottom: 130), children: [for (final p in l) _playlistTile(context, p)]),
+            : ListView(padding: const EdgeInsets.only(bottom: 130), children: [for (final p in l) _playlistTile(context, p, kind: kind == 'albums' ? 'album' : (kind == 'podcasts' ? 'podcast' : 'playlist'))]),
       );
 }
 
@@ -332,7 +299,7 @@ class _AllTab extends ConsumerWidget {
             title: albums.requireValue[i].name,
             subtitle: albums.requireValue[i].description,
             width: w,
-            onTap: () => openCollection(context, albums.requireValue[i]),
+            onTap: () => openCollection(context, albums.requireValue[i], kind: 'album'),
           ),
         ),
       ],

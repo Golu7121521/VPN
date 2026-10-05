@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../core/theme.dart';
 import '../core/widgets.dart';
 import '../data/models.dart';
+import '../state/art_color.dart';
 import '../state/providers.dart';
 
 class NowPlayingScreen extends ConsumerStatefulWidget {
@@ -162,6 +163,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
     final repeat = ref.watch(playerProvider.select((s) => s.repeat));
     final sleep = ref.watch(playerProvider.select((s) => s.sleepLabel));
     final liked = ref.watch(likesProvider).contains(song.id);
+    final tint = ref.watch(artColorProvider(song.artwork)).valueOrNull ?? const Color(0xFF2A1B4D);
     final ctl = ref.read(playerProvider.notifier);
 
     ref.listen(playerProvider.select((s) => s.playing), (_, p) {
@@ -182,10 +184,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
     });
 
     final page = Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
+      body: AnimatedContainer(
+        duration: const Duration(milliseconds: 700),
+        decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF2A1B4D), AppColors.background],
+            colors: [tint, AppColors.background],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),

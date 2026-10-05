@@ -32,10 +32,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           backgroundColor: AppColors.background,
           surfaceTintColor: Colors.transparent,
           titleSpacing: 16,
-          title: const Text(
-            'MUSIFY',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, color: AppColors.primary),
-          ),
+          title: const Row(children: [
+            AppLogo(size: 34),
+            SizedBox(width: 10),
+            Text(
+              'ROXYFY',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, color: AppColors.primary),
+            ),
+          ]),
           actions: [
             IconButton(
               tooltip: 'Search',
@@ -97,7 +101,7 @@ Widget _playlistRow(BuildContext context, List<Playlist> list, double width) => 
         title: list[i].name,
         subtitle: list[i].description,
         width: width,
-        onTap: () => openCollection(context, list[i]),
+        onTap: () => openCollection(context, list[i], kind: 'podcast'),
       ),
     );
 

@@ -1,304 +1,88 @@
-import 'dart:async';
-
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/router.dart';
 import 'core/theme.dart';
+import 'state/audio_handler.dart';
 import 'state/providers.dart';
 
-/// ===============================================================
-/// APP OPEN AD MANAGER
-/// ===============================================================
-class AppOpenAdManager {
-  AppOpenAd? _appOpenAd;
-
-  DateTime? _loadTime;
-
-  bool _isLoadingAd = false;
-  bool _isShowingAd = false;
-
-  /// =============================================================
-  /// TEST MODE
-  ///
-  /// true  = Google test ad
-  /// false = Your real AdMob ad
-  ///
-  /// Testing ke time TRUE hi rakho.
-  /// =============================================================
-  static const bool useTestAd = true;
-
-  /// Google official Android App Open test ID.
-  static const String androidTestAdUnit =
-      'ca-app-pub-3940256099942544/9257395921';
-
-  /// Your real App Open Ad Unit ID.
-  static const String androidProductionAdUnit =
-      'ca-app-pub-1021473146993515/1406283648';
-
-  String get adUnitId {
-    if (useTestAd) {
-      return androidTestAdUnit;
-    }
-
-    return androidProductionAdUnit;
-  }
-
-  /// Check whether a valid ad is available.
-  bool get isAdAvailable {
-    if (_appOpenAd == null) {
-      return false;
-    }
-
-    if (_loadTime == null) {
-      return false;
-    }
-
-    // App Open ads should not be kept for too long.
-    final age = DateTime.now().difference(_loadTime!);
-
-    if (age >= const Duration(hours: 4)) {
-      _appOpenAd?.dispose();
-      _appOpenAd = null;
-      _loadTime = null;
-
-      return false;
-    }
-
-    return true;
-  }
-
-  /// =============================================================
-  /// LOAD APP OPEN AD
-  /// =============================================================
-  void loadAd() {
-    if (_isLoadingAd) {
-      return;
-    }
-
-    if (isAdAvailable) {
-      return;
-    }
-
-    _isLoadingAd = true;
-
-    AppOpenAd.load(
-      adUnitId: adUnitId,
-      request: const AdRequest(),
-
-      adLoadCallback: AppOpenAdLoadCallback(
-        onAdLoaded: (ad) {
-          _isLoadingAd = false;
-
-          _appOpenAd = ad;
-          _loadTime = DateTime.now();
-
-          debugPrint('Musify: App Open Ad loaded.');
-        },
-
-        onAdFailedToLoad: (error) {
-          _isLoadingAd = false;
-
-          debugPrint(
-            'Musify: App Open Ad failed to load: $error',
-          );
-        },
-      ),
-    );
-  }
-
-  /// =============================================================
-  /// SHOW APP OPEN AD
-  /// =============================================================
-  void showAdIfAvailable() {
-    if (_isShowingAd) {
-      return;
-    }
-
-    if (!isAdAvailable) {
-      debugPrint(
-        'Musify: App Open Ad not available yet.',
-      );
-
-      // Try loading another ad.
-      loadAd();
-
-      return;
-    }
-
-    final ad = _appOpenAd!;
-
-    // Remove reference before showing.
-    _appOpenAd = null;
-    _loadTime = null;
-
-    _isShowingAd = true;
-
-    ad.fullScreenContentCallback =
-        FullScreenContentCallback(
-      onAdShowedFullScreenContent: (ad) {
-        debugPrint(
-          'Musify: App Open Ad showed.',
-        );
-      },
-
-      onAdFailedToShowFullScreenContent: (
-        ad,
-        error,
-      ) {
-        debugPrint(
-          'Musify: App Open Ad failed to show: $error',
-        );
-
-        _isShowingAd = false;
-
-        ad.dispose();
-
-        // Prepare next ad.
-        loadAd();
-      },
-
-      onAdDismissedFullScreenContent: (ad) {
-        debugPrint(
-          'Musify: App Open Ad dismissed.',
-        );
-
-        _isShowingAd = false;
-
-        ad.dispose();
-
-        // Load next App Open Ad.
-        loadAd();
-      },
-    );
-
-    ad.show();
-  }
-
-  /// Cleanup.
-  void dispose() {
-    _appOpenAd?.dispose();
-
-    _appOpenAd = null;
-    _loadTime = null;
-  }
-}
-
-/// ===============================================================
-/// APP LIFECYCLE REACTOR
-/// ===============================================================
-class AppLifecycleReactor {
-  final AppOpenAdManager appOpenAdManager;
-
-  StreamSubscription<AppState>? _subscription;
-
-  AppLifecycleReactor({
-    required this.appOpenAdManager,
-  });
-
-  void listen() {
-    AppStateEventNotifier.startListening();
-
-    _subscription =
-        AppStateEventNotifier.appStateStream.listen(
-      (state) {
-        debugPrint(
-          'Musify: App state = $state',
-        );
-
-        if (state == AppState.foreground) {
-          appOpenAdManager.showAdIfAvailable();
-        }
-      },
-    );
-  }
-
-  void dispose() {
-    _subscription?.cancel();
-  }
-}
-
-/// ===============================================================
-/// MAIN
-/// ===============================================================
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  /// -------------------------------------------------------------
-  /// Initialize Google Mobile Ads
-  /// -------------------------------------------------------------
-  await MobileAds.instance.initialize();
-
-  /// -------------------------------------------------------------
-  /// Initialize Audio Background
-  /// -------------------------------------------------------------
-  await JustAudioBackground.init(
-    androidNotificationChannelId:
-        'com.example.musify.audio',
-
-    androidNotificationChannelName:
-        'Musify playback',
-
-    androidNotificationOngoing: true,
-  );
-
-  /// -------------------------------------------------------------
-  /// Shared Preferences
-  /// -------------------------------------------------------------
-  final prefs =
-      await SharedPreferences.getInstance();
-
-  /// -------------------------------------------------------------
-  /// App Open Ad Manager
-  /// -------------------------------------------------------------
-  final appOpenAdManager =
-      AppOpenAdManager();
-
-  /// Pre-load first App Open Ad.
-  appOpenAdManager.loadAd();
-
-  /// Listen for app foreground/background events.
-  final appLifecycleReactor =
-      AppLifecycleReactor(
-    appOpenAdManager: appOpenAdManager,
-  );
-
-  appLifecycleReactor.listen();
-
-  /// -------------------------------------------------------------
-  /// Start Flutter app
-  /// -------------------------------------------------------------
-  runApp(
-    ProviderScope(
-      overrides: [
-        prefsProvider.overrideWithValue(prefs),
-      ],
-      child: const MusifyApp(),
+  audioHandler = await AudioService.init(
+    builder: () => RoxyAudioHandler(),
+    config: const AudioServiceConfig(
+      androidNotificationChannelId: 'com.roxyfy.audio',
+      androidNotificationChannelName: 'Roxyfy playback',
+      androidNotificationIcon: 'drawable/ic_notification',
+      androidNotificationOngoing: false,
+      androidStopForegroundOnPause: true,
     ),
   );
+  final prefs = await SharedPreferences.getInstance();
+  runApp(ProviderScope(
+    overrides: [prefsProvider.overrideWithValue(prefs)],
+    child: const RoxyfyApp(),
+  ));
 }
 
-/// ===============================================================
-/// MUSIFY APP
-/// ===============================================================
-class MusifyApp extends StatelessWidget {
-  const MusifyApp({
-    super.key,
-  });
+class RoxyfyApp extends ConsumerStatefulWidget {
+  const RoxyfyApp({super.key});
+  @override
+  ConsumerState<RoxyfyApp> createState() => _RoxyfyAppState();
+}
+
+class _RoxyfyAppState extends ConsumerState<RoxyfyApp> {
+  static const _ch = MethodChannel('roxyfy/newpipe');
+
+  // youtu.be/ID, youtube.com/watch?v=ID, /live/ID, /shorts/ID, music.youtube.com/watch?v=ID
+  static final _idRe = RegExp(
+      r'(?:youtu\.be/|youtube\.com/(?:watch\?(?:.*&)?v=|live/|shorts/|embed/)|music\.youtube\.com/watch\?(?:.*&)?v=)([\w-]{11})');
+
+  @override
+  void initState() {
+    super.initState();
+    _ch.setMethodCallHandler((call) async {
+      if (call.method == 'shared') _handleShared(call.arguments as String?);
+    });
+    // A share that launched the app from cold; wait until the splash screen is done.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final url = await _ch.invokeMethod<String>('initialShare');
+      if (url != null) {
+        await Future<void>.delayed(const Duration(milliseconds: 3200));
+        _handleShared(url);
+      }
+    });
+  }
+
+  Future<void> _handleShared(String? text) async {
+    if (text == null) return;
+    final id = _idRe.firstMatch(text)?.group(1);
+    final msg = appMessengerKey.currentState;
+    if (id == null) {
+      msg?.showSnackBar(const SnackBar(content: Text('That is not a YouTube link')));
+      return;
+    }
+    try {
+      final song = await ref.read(musicRepoProvider).songFromUrl('https://www.youtube.com/watch?v=$id');
+      await ref.read(playerProvider.notifier).playQueue([song], 0);
+    } catch (e) {
+      msg?.showSnackBar(const SnackBar(content: Text('Could not open this video')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'Musify',
-
+      title: 'Roxyfy',
       debugShowCheckedModeBanner: false,
-
+      scaffoldMessengerKey: appMessengerKey,
       theme: AppTheme.dark,
-
       routerConfig: appRouter,
     );
   }
 }
+
+final appMessengerKey = GlobalKey<ScaffoldMessengerState>();

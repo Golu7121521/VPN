@@ -5,13 +5,13 @@ import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/mock_data.dart';
 import '../data/models.dart';
 import '../data/repositories.dart';
+import 'audio_handler.dart';
 
 const kUserAgent = 'Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0';
 
@@ -78,6 +78,13 @@ class TasteNotifier extends Notifier<TasteState> {
     p.setStringList('fav_artists', artists);
     p.setStringList('fav_langs', langs);
     state = TasteState(onboarded: true, artists: artists, langs: langs, plays: state.plays);
+  }
+
+  void toggleArtist(String name) {
+    final l = [...state.artists];
+    if (!l.remove(name)) l.add(name);
+    ref.read(prefsProvider).setStringList('fav_artists', l);
+    state = TasteState(onboarded: state.onboarded, artists: l, langs: state.langs, plays: state.plays);
   }
 
   void recordPlay(String artistName) {
@@ -181,6 +188,58 @@ final moodFeedProvider = FutureProvider.family<List<FeedRow>, String>((ref, mood
   }
   return rows;
 });
+
+// ---------- library (saved albums, playlists, podcasts and artists) ----------
+class LibraryState {
+  const LibraryState({this.collections = const [], this.artists = const []});
+  final List<Playlist> collections;
+  final List<String> artists;
+  bool hasCollection(String id) => collections.any((c) => c.id == id);
+  bool hasArtist(String name) => artists.contains(name);
+}
+
+class LibraryNotifier extends Notifier<LibraryState> {
+  @override
+  LibraryState build() {
+    final p = ref.watch(prefsProvider);
+    final cols = <Playlist>[];
+    for (final r in p.getStringList('saved_collections') ?? const <String>[]) {
+      final m = jsonDecode(r) as Map<String, dynamic>;
+      cols.add(Playlist(
+        id: m['id'] as String,
+        name: m['name'] as String,
+        description: m['desc'] as String,
+        cover: m['cover'] as String,
+        kind: m['kind'] as String,
+      ));
+    }
+    return LibraryState(collections: cols, artists: p.getStringList('saved_artists') ?? []);
+  }
+
+  void toggleCollection(Playlist c) {
+    final l = [...state.collections];
+    final i = l.indexWhere((e) => e.id == c.id);
+    if (i >= 0) {
+      l.removeAt(i);
+    } else {
+      l.insert(0, c);
+    }
+    ref.read(prefsProvider).setStringList('saved_collections', [
+      for (final e in l)
+        jsonEncode({'id': e.id, 'name': e.name, 'desc': e.description, 'cover': e.cover, 'kind': e.kind}),
+    ]);
+    state = LibraryState(collections: l, artists: state.artists);
+  }
+
+  void toggleArtist(String name) {
+    final l = [...state.artists];
+    if (!l.remove(name)) l.insert(0, name);
+    ref.read(prefsProvider).setStringList('saved_artists', l);
+    state = LibraryState(collections: state.collections, artists: l);
+  }
+}
+
+final libraryProvider = NotifierProvider<LibraryNotifier, LibraryState>(LibraryNotifier.new);
 
 // ---------- likes ----------
 class Likes {
@@ -478,6 +537,24 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
   @override
   PlayerStatus build() {
     _p = AudioPlayer(userAgent: kUserAgent);
+    final h = audioHandler;
+    if (h != null) {
+      h.onPlay = () => _p.play();
+      h.onPause = () => _p.pause();
+      h.onNext = next;
+      h.onPrev = previous;
+      h.onSeek = seek;
+      h.onStop = () => clearQueue();
+    }
+    listenSelf((prev, next) {
+      final hh = audioHandler;
+      final song = next.current;
+      if (hh == null || song == null) return;
+      if (prev?.current != song || prev?.duration != next.duration) hh.show(song, next.duration);
+      if (prev?.playing != next.playing || prev?.loading != next.loading || prev?.current != song) {
+        hh.sync(playing: next.playing, loading: next.loading, position: _p.position);
+      }
+    });
     final subs = <StreamSubscription<Object?>>[
       _p.playerStateStream.listen((s) {
         final done = s.processingState == ProcessingState.completed;
@@ -520,15 +597,15 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     await _load();
   }
 
-  AudioSource _source(AudioSrc a, MediaItem tag) {
+  AudioSource _source(AudioSrc a) {
     final uri = Uri.parse(a.url);
     switch (a.method) {
       case 'hls':
-        return HlsAudioSource(uri, tag: tag);
+        return HlsAudioSource(uri);
       case 'dash':
-        return DashAudioSource(uri, tag: tag);
+        return DashAudioSource(uri);
       default:
-        return AudioSource.uri(uri, tag: tag);
+        return AudioSource.uri(uri);
     }
   }
 
@@ -550,16 +627,10 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
       if (my != _token) return;
       url = srcs.first.url;
       stage = 'player';
-      final tag = MediaItem(
-        id: s.id,
-        title: s.title,
-        artist: s.artistName,
-        artUri: s.artwork.isEmpty ? null : Uri.parse(resizeForNotification(s.artwork)),
-      );
       var ok = false;
       for (final a in srcs) {
         try {
-          await _p.setAudioSource(_source(a, tag));
+          await _p.setAudioSource(_source(a));
           ok = true;
           break;
         } catch (_) {
@@ -568,7 +639,7 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
       }
       if (!ok) {
         stage = 'proxy';
-        await _p.setAudioSource(_HttpStreamSource(srcs.first.url, kUserAgent, tag));
+        await _p.setAudioSource(_HttpStreamSource(srcs.first.url, kUserAgent));
       }
       if (my != _token) return;
       _resolving = false;
@@ -628,7 +699,11 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
   }
 
   void toggle() => state.playing ? _p.pause() : _p.play();
-  void seek(Duration d) => _p.seek(d);
+  void seek(Duration d) {
+    _p.seek(d);
+    final s = state;
+    audioHandler?.sync(playing: s.playing, loading: s.loading, position: d);
+  }
 
   void next() {
     final n = state.queue.length;
@@ -717,13 +792,12 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     _token++;
     _resolving = false;
     await _p.stop();
+    await audioHandler?.hide();
     state = PlayerStatus(history: state.history, shuffle: state.shuffle, repeat: state.repeat);
   }
 
   void clearError() => state = state.copyWith(clearError: true);
 }
-
-String resizeForNotification(String url) => url.replaceFirst(RegExp(r'=(w\d+-h\d+|s\d+)'), '=w544-h544');
 
 final playerProvider = NotifierProvider<PlayerNotifier, PlayerStatus>(PlayerNotifier.new);
 
@@ -732,7 +806,7 @@ final positionProvider =
 
 /// Fallback source: downloads ranges with dart:io and serves them to the native player.
 class _HttpStreamSource extends StreamAudioSource {
-  _HttpStreamSource(this.url, this.userAgent, MediaItem tag) : super(tag: tag);
+  _HttpStreamSource(this.url, this.userAgent);
   final String url, userAgent;
 
   @override

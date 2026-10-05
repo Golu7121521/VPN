@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
+import '../core/widgets.dart';
 import '../state/providers.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -49,10 +50,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen> with SingleTickerPr
               duration: const Duration(milliseconds: 700),
               curve: Curves.elasticOut,
               builder: (_, v, child) => Transform.scale(scale: v, child: child),
-              child: const Icon(Icons.music_note_rounded, size: 110, color: AppColors.primary),
+              child: const AppLogo(size: 120),
             ),
             const SizedBox(height: 8),
-            const Text('MUSIFY', style: TextStyle(fontSize: 36, fontWeight: FontWeight.w800, letterSpacing: 8)),
+            const Text('ROXYFY', style: TextStyle(fontSize: 36, fontWeight: FontWeight.w800, letterSpacing: 8)),
             const SizedBox(height: 8),
             const Text('Music for a better you', style: TextStyle(color: AppColors.textSecondary, fontSize: 15)),
             const SizedBox(height: 48),

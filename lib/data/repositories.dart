@@ -17,6 +17,7 @@ abstract class MusicRepository {
   Future<List<Playlist>> playlists(String query, {String filter});
   Future<List<Artist>> artists(String query);
   Future<Playlist> playlistDetails(String url);
+  Future<Song> songFromUrl(String url);
   Future<List<AudioSrc>> audioSources(Song song);
   Future<String?> videoUrl(Song song);
   Future<List<String>> suggestions(String query);
@@ -26,7 +27,7 @@ abstract class MusicRepository {
 
 /// Real YouTube Music data through NewPipeExtractor (Android channel) + LRCLIB lyrics.
 class NewPipeMusicRepository implements MusicRepository {
-  static const _ch = MethodChannel('musify/newpipe');
+  static const _ch = MethodChannel('roxyfy/newpipe');
   final _sources = <String, ({List<AudioSrc> list, DateTime at})>{};
   final _artistImages = <String, String?>{};
 
@@ -86,6 +87,16 @@ class NewPipeMusicRepository implements MusicRepository {
     );
   }
 
+  @override
+  Future<Song> songFromUrl(String url) async {
+    final m = Map<String, dynamic>.from((await _ch.invokeMethod<Map<dynamic, dynamic>>('info', {'url': url}))! as Map);
+    final live = m['live'] == true;
+    final s = _song(m);
+    return live
+        ? Song(id: s.id, title: s.title, artistName: '${s.artistName} • LIVE', artwork: s.artwork)
+        : s;
+  }
+
   Future<List<AudioSrc>> _sourcesFor(String url) async {
     final m = await _ch.invokeMapMethod<String, dynamic>('stream', {'url': url});
     return [
@@ -140,7 +151,7 @@ class NewPipeMusicRepository implements MusicRepository {
   Future<dynamic> _getJson(Uri u) async {
     try {
       final c = HttpClient()
-        ..userAgent = 'Musify/1.0'
+        ..userAgent = 'Roxyfy/1.0'
         ..connectionTimeout = const Duration(seconds: 8);
       final req = await c.getUrl(u);
       final res = await req.close().timeout(const Duration(seconds: 10));

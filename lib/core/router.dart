@@ -25,17 +25,18 @@ final appRouter = GoRouter(
         GoRoute(path: '/search', builder: (_, __) => const SearchScreen()),
         GoRoute(path: '/library', builder: (_, __) => const LibraryScreen()),
         GoRoute(path: '/downloads', builder: (_, __) => const DownloadsScreen()),
-        GoRoute(
-          path: '/collection',
-          builder: (_, s) => RemoteCollectionScreen(
-            url: s.uri.queryParameters['u'] ?? '',
-            name: s.uri.queryParameters['n'] ?? '',
-            cover: s.uri.queryParameters['c'] ?? '',
-          ),
-        ),
-        GoRoute(path: '/playlist/:id', builder: (_, s) => CollectionScreen(id: s.pathParameters['id']!)),
-        GoRoute(path: '/artist/:name', builder: (_, s) => ArtistScreen(name: s.pathParameters['name']!)),
       ],
+    ),
+    GoRoute(path: '/playlist/:id', builder: (_, s) => CollectionScreen(id: s.pathParameters['id']!)),
+    GoRoute(path: '/artist/:name', builder: (_, s) => ArtistScreen(name: s.pathParameters['name']!)),
+    GoRoute(
+      path: '/collection',
+      builder: (_, s) => RemoteCollectionScreen(
+        url: s.uri.queryParameters['u'] ?? '',
+        name: s.uri.queryParameters['n'] ?? '',
+        cover: s.uri.queryParameters['c'] ?? '',
+        kind: s.uri.queryParameters['k'] ?? 'playlist',
+      ),
     ),
     GoRoute(
       path: '/player',

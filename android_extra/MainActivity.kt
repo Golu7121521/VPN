@@ -1,5 +1,6 @@
-package com.example.musify
+package com.roxyfy
 
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import com.ryanheise.audioservice.AudioServiceActivity
@@ -11,464 +12,187 @@ import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.MediaFormat
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
-import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.extractor.playlist.PlaylistInfo
 import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.schabi.newpipe.extractor.stream.StreamType
 import org.schabi.newpipe.extractor.stream.VideoStream
 import java.util.concurrent.TimeUnit
 
-private const val UA =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-        "AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/128.0.0.0 Safari/537.36"
+const val UA = "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0"
 
-private const val CHANNEL = "musify/newpipe"
-
-private class MusifyDownloader : Downloader() {
-
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .build()
-
+class DL : Downloader() {
+    private val client = OkHttpClient.Builder().readTimeout(30, TimeUnit.SECONDS).build()
     override fun execute(request: Request): Response {
-        val method = request.httpMethod().uppercase()
-
+        val m = request.httpMethod()
         var body = request.dataToSend()?.toRequestBody()
-
-        if (body == null && (method == "POST" || method == "PUT")) {
-            body = ByteArray(0).toRequestBody()
+        if (body == null && (m == "POST" || m == "PUT")) body = ByteArray(0).toRequestBody()
+        val b = okhttp3.Request.Builder().url(request.url()).method(m, body).header("User-Agent", UA)
+        request.headers().forEach { (k, v) ->
+            b.removeHeader(k)
+            v.forEach { b.addHeader(k, it) }
         }
-
-        val builder = okhttp3.Request.Builder()
-            .url(request.url())
-            .method(method, body)
-            .header("User-Agent", UA)
-
-        request.headers().forEach { (key, values) ->
-            builder.removeHeader(key)
-
-            values.forEach { value ->
-                builder.addHeader(key, value)
-            }
-        }
-
-        client.newCall(builder.build()).execute().use { response ->
-
-            if (response.code == 429) {
-                throw ReCaptchaException(
-                    "Rate limited",
-                    request.url()
-                )
-            }
-
-            val responseBody = response.body?.string()
-
-            return Response(
-                response.code,
-                response.message,
-                response.headers.toMultimap(),
-                responseBody,
-                response.request.url.toString()
-            )
-        }
+        val r = client.newCall(b.build()).execute()
+        if (r.code == 429) { r.close(); throw ReCaptchaException("Rate limited", request.url()) }
+        val text = r.body?.string()
+        return Response(r.code, r.message, r.headers.toMultimap(), text, r.request.url.toString())
     }
 }
 
 class MainActivity : AudioServiceActivity() {
+    private val main = Handler(Looper.getMainLooper())
+    private val known = listOf("search", "stream", "video", "playlist", "suggest", "artistImage", "info", "initialShare")
+    private var channel: MethodChannel? = null
+    private var pendingShare: String? = null
+    private var dartReady = false
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    // YouTube "Share" -> Roxyfy: pull the first link out of the shared text.
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+        val url = Regex("https?://\\S+").find(text)?.value ?: text
+        if (dartReady) channel?.invokeMethod("shared", url) else pendingShare = url
+    }
 
-    private val supportedMethods = setOf(
-        "search",
-        "stream",
-        "video",
-        "playlist",
-        "suggest",
-        "artistImage"
-    )
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-
-        /*
-         * Initialize NewPipe once when the Flutter engine starts.
-         */
-        try {
-            NewPipe.init(MusifyDownloader())
-        } catch (_: Throwable) {
-            // NewPipe may already be initialized.
-        }
-
-        MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            CHANNEL
-        ).setMethodCallHandler { call, result ->
-
-            if (call.method !in supportedMethods) {
-                result.notImplemented()
-                return@setMethodCallHandler
-            }
-
-            Thread {
-                try {
-                    val output: Any? = when (call.method) {
-
-                        "search" -> {
-                            val query =
-                                call.argument<String>("query") ?: ""
-
-                            val filter =
-                                call.argument<String>("filter")
-                                    ?: "music_songs"
-
-                            search(query, filter)
-                        }
-
-                        "stream" -> {
-                            val url =
-                                call.argument<String>("url") ?: ""
-
-                            stream(url)
-                        }
-
-                        "video" -> {
-                            val url =
-                                call.argument<String>("url") ?: ""
-
-                            video(url)
-                        }
-
-                        "playlist" -> {
-                            val url =
-                                call.argument<String>("url") ?: ""
-
-                            playlist(url)
-                        }
-
-                        "suggest" -> {
-                            val query =
-                                call.argument<String>("query") ?: ""
-
-                            suggest(query)
-                        }
-
-                        "artistImage" -> {
-                            val name =
-                                call.argument<String>("name") ?: ""
-
-                            artistImage(name)
-                        }
-
-                        else -> null
-                    }
-
-                    mainHandler.post {
-                        result.success(output)
-                    }
-
-                } catch (error: Throwable) {
-
-                    mainHandler.post {
-                        result.error(
-                            "NEWPIPE_ERROR",
-                            error.message ?: error.toString(),
-                            null
-                        )
-                    }
+        NewPipe.init(DL())
+        handleIntent(intent)
+        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "roxyfy/newpipe")
+        channel!!.setMethodCallHandler { call, result ->
+                if (call.method == "initialShare") {
+                    dartReady = true
+                    result.success(pendingShare)
+                    pendingShare = null
+                    return@setMethodCallHandler
                 }
-            }.start()
-        }
+                Thread {
+                    try {
+                        val out: Any? = when (call.method) {
+                            "search" -> search(call.argument<String>("query") ?: "", call.argument<String>("filter") ?: "music_songs")
+                            "stream" -> stream(call.argument<String>("url") ?: "")
+                            "video" -> video(call.argument<String>("url") ?: "")
+                            "playlist" -> playlist(call.argument<String>("url") ?: "")
+                            "suggest" -> suggest(call.argument<String>("query") ?: "")
+                            "artistImage" -> artistImage(call.argument<String>("name") ?: "")
+                            "info" -> info(call.argument<String>("url") ?: "")
+                            else -> null
+                        }
+                        main.post {
+                            if (call.method in known) result.success(out) else result.notImplemented()
+                        }
+                    } catch (e: Throwable) {
+                        main.post { result.error("NEWPIPE", e.toString(), null) }
+                    }
+                }.start()
+            }
     }
 
-    private fun toMap(item: InfoItem): Map<String, Any?>? {
-
-        return when (item) {
-
-            is StreamInfoItem -> {
-                mapOf(
-                    "type" to "stream",
-                    "url" to item.url,
-                    "title" to item.name,
-                    "artist" to (item.uploaderName ?: ""),
-                    "thumb" to item.thumbnails
-                        .maxByOrNull { thumbnail ->
-                            thumbnail.height
-                        }
-                        ?.url,
-                    "duration" to item.duration.toInt()
-                )
-            }
-
-            is PlaylistInfoItem -> {
-                mapOf(
-                    "type" to "playlist",
-                    "url" to item.url,
-                    "title" to item.name,
-                    "artist" to (item.uploaderName ?: ""),
-                    "thumb" to item.thumbnails
-                        .maxByOrNull { thumbnail ->
-                            thumbnail.height
-                        }
-                        ?.url,
-                    "count" to item.streamCount.toInt()
-                )
-            }
-
-            is ChannelInfoItem -> {
-                mapOf(
-                    "type" to "channel",
-                    "url" to item.url,
-                    "title" to item.name,
-                    "thumb" to item.thumbnails
-                        .maxByOrNull { thumbnail ->
-                            thumbnail.height
-                        }
-                        ?.url
-                )
-            }
-
-            else -> null
-        }
-    }
-
-    private fun search(
-        query: String,
-        filter: String
-    ): List<Map<String, Any?>> {
-
-        if (query.isBlank()) {
-            return emptyList()
-        }
-
-        val youtube = ServiceList.YouTube
-
-        val extractor = youtube.getSearchExtractor(
-            query,
-            listOf(filter),
-            ""
+    private fun toMap(i: InfoItem): Map<String, Any?>? = when (i) {
+        is StreamInfoItem -> mapOf(
+            "type" to "stream", "url" to i.url, "title" to i.name, "artist" to (i.uploaderName ?: ""),
+            "thumb" to i.thumbnails.maxByOrNull { x -> x.height }?.url, "duration" to i.duration.toInt(),
         )
+        is PlaylistInfoItem -> mapOf(
+            "type" to "playlist", "url" to i.url, "title" to i.name, "artist" to (i.uploaderName ?: ""),
+            "thumb" to i.thumbnails.maxByOrNull { x -> x.height }?.url, "count" to i.streamCount.toInt(),
+        )
+        is ChannelInfoItem -> mapOf(
+            "type" to "channel", "url" to i.url, "title" to i.name,
+            "thumb" to i.thumbnails.maxByOrNull { x -> x.height }?.url,
+        )
+        else -> null
+    }
 
-        extractor.fetchPage()
-
-        var items = extractor.initialPage.items
-
-        /*
-         * If music_songs returns nothing, fall back to normal
-         * YouTube search.
-         */
+    private fun search(q: String, filter: String): List<Map<String, Any?>> {
+        val yt = ServiceList.YouTube
+        val ex = yt.getSearchExtractor(q, listOf(filter), "")
+        ex.fetchPage()
+        var items = ex.initialPage.items
         if (items.isEmpty() && filter == "music_songs") {
-
-            val fallback = youtube.getSearchExtractor(query)
-
-            fallback.fetchPage()
-
-            items = fallback.initialPage.items
+            val ex2 = yt.getSearchExtractor(q)
+            ex2.fetchPage()
+            items = ex2.initialPage.items
         }
-
-        return items.mapNotNull { item ->
-            toMap(item)
-        }
+        return items.mapNotNull { toMap(it) }
     }
 
     private fun playlist(url: String): Map<String, Any?> {
-
-        if (url.isBlank()) {
-            throw IllegalArgumentException("Playlist URL is empty")
-        }
-
-        val info = PlaylistInfo.getInfo(
-            ServiceList.YouTube,
-            url
-        )
-
-        val items = info.relatedItems
-            .filterIsInstance<StreamInfoItem>()
-            .mapNotNull { item ->
-                toMap(item)
-            }
-
+        val info = PlaylistInfo.getInfo(ServiceList.YouTube, url)
         return mapOf(
             "name" to info.name,
             "artist" to (info.uploaderName ?: ""),
-            "thumb" to info.thumbnails
-                .maxByOrNull { thumbnail ->
-                    thumbnail.height
-                }
-                ?.url,
-            "items" to items
+            "thumb" to info.thumbnails.maxByOrNull { it.height }?.url,
+            "items" to info.relatedItems.filterIsInstance<StreamInfoItem>().mapNotNull { toMap(it) },
         )
     }
 
     private fun stream(url: String): Map<String, Any?> {
-
-        if (url.isBlank()) {
-            throw IllegalArgumentException("Stream URL is empty")
-        }
-
-        val info = StreamInfo.getInfo(
-            ServiceList.YouTube,
-            url
+        val info = StreamInfo.getInfo(ServiceList.YouTube, url)
+        val all = info.audioStreams
+        // AAC (m4a) first, highest bitrate first: plays everywhere. webm/opus and HLS/DASH are fallbacks.
+        val prog = all.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }.sortedWith(
+            compareByDescending<AudioStream> { it.format == MediaFormat.M4A }.thenByDescending { it.averageBitrate }
         )
-
-        val audioStreams = info.audioStreams
-
-        /*
-         * Prefer progressive M4A because it is generally easier
-         * for Android audio playback.
-         */
-        val progressive = audioStreams
-            .filter { audio ->
-                audio.deliveryMethod ==
-                    DeliveryMethod.PROGRESSIVE_HTTP
-            }
-            .sortedWith(
-                compareByDescending<AudioStream> { audio ->
-                    audio.format == MediaFormat.M4A
-                }.thenByDescending { audio ->
-                    audio.averageBitrate
-                }
-            )
-
-        /*
-         * HLS/DASH fallback streams.
-         */
-        val adaptive = audioStreams
-            .filter { audio ->
-                (
-                    audio.deliveryMethod == DeliveryMethod.HLS ||
-                        audio.deliveryMethod == DeliveryMethod.DASH
-                    ) && audio.isUrl
-            }
-            .sortedByDescending { audio ->
-                audio.averageBitrate
-            }
-
-        val sources =
-            progressive.map { audio ->
-                mapOf(
-                    "url" to audio.content,
-                    "method" to "progressive"
-                )
-            } +
-            adaptive.map { audio ->
-                mapOf(
-                    "url" to audio.content,
-                    "method" to audio.deliveryMethod
-                        .name
-                        .lowercase()
-                )
-            }
-
-        if (sources.isEmpty()) {
-            throw IllegalStateException(
-                "No audio stream found"
-            )
-        }
-
-        return mapOf(
-            "sources" to sources
-        )
+        val other = all.filter {
+            (it.deliveryMethod == DeliveryMethod.HLS || it.deliveryMethod == DeliveryMethod.DASH) && it.isUrl
+        }.sortedByDescending { it.averageBitrate }
+        val sources = prog.map { mapOf("url" to it.content, "method" to "progressive") } +
+            other.map { mapOf("url" to it.content, "method" to it.deliveryMethod.name.lowercase()) }
+        val live = info.streamType == StreamType.LIVE_STREAM || info.streamType == StreamType.AUDIO_LIVE_STREAM
+        val hls = info.hlsUrl
+        val all2 = if (hls != null && hls.isNotEmpty()) {
+            val h = mapOf("url" to hls, "method" to "hls")
+            if (live) listOf(h) + sources else sources + h
+        } else sources
+        if (all2.isEmpty()) throw Exception("No audio stream found")
+        return mapOf("sources" to all2)
     }
 
-    /*
-     * Returns a video URL.
-     *
-     * The Flutter side can use this together with the audio
-     * player as the playback clock.
-     */
+    // Video-only stream (the app mutes it and keeps the audio player as the clock).
     private fun video(url: String): String? {
-
-        if (url.isBlank()) {
-            throw IllegalArgumentException("Video URL is empty")
-        }
-
-        val info = StreamInfo.getInfo(
-            ServiceList.YouTube,
-            url
-        )
-
-        /*
-         * First preference:
-         * progressive video up to 720p.
-         */
-        val videoOnly = info.videoOnlyStreams
-            .filter { video ->
-                video.deliveryMethod ==
-                    DeliveryMethod.PROGRESSIVE_HTTP &&
-                    video.height in 1..720
-            }
+        val info = StreamInfo.getInfo(ServiceList.YouTube, url)
+        val best = info.videoOnlyStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.height in 1..720 }
             .sortedWith(
-                compareByDescending<VideoStream> { video ->
-                    video.height
-                }.thenByDescending { video ->
-                    video.format == MediaFormat.MPEG_4
-                }
-            )
-            .firstOrNull()
-
-        if (videoOnly != null) {
-            return videoOnly.content
-        }
-
-        /*
-         * Fallback to progressive video streams.
-         */
-        return info.videoStreams
-            .filter { video ->
-                video.deliveryMethod ==
-                    DeliveryMethod.PROGRESSIVE_HTTP
-            }
-            .maxByOrNull { video ->
-                video.height
-            }
-            ?.content
+                compareByDescending<VideoStream> { it.height }.thenByDescending { it.format == MediaFormat.MPEG_4 }
+            ).firstOrNull()
+        if (best != null) return best.content
+        return info.videoStreams.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+            .maxByOrNull { it.height }?.content
     }
 
-    private fun suggest(query: String): List<String> {
-
-        if (query.isBlank()) {
-            return emptyList()
-        }
-
-        return ServiceList.YouTube
-            .suggestionExtractor
-            .suggestionList(query)
+    private fun info(url: String): Map<String, Any?> {
+        val i = StreamInfo.getInfo(ServiceList.YouTube, url)
+        val live = i.streamType == StreamType.LIVE_STREAM || i.streamType == StreamType.AUDIO_LIVE_STREAM
+        return mapOf(
+            "type" to "stream", "url" to i.url, "title" to i.name, "artist" to (i.uploaderName ?: ""),
+            "thumb" to i.thumbnails.maxByOrNull { x -> x.height }?.url, "duration" to (if (live) 0 else i.duration.toInt()),
+            "live" to live,
+        )
     }
+
+    private fun suggest(q: String): List<String> =
+        ServiceList.YouTube.suggestionExtractor.suggestionList(q)
 
     private fun artistImage(name: String): String? {
-
-        if (name.isBlank()) {
-            return null
-        }
-
-        val extractor = ServiceList.YouTube
-            .getSearchExtractor(
-                name,
-                listOf("music_artists"),
-                ""
-            )
-
-        extractor.fetchPage()
-
-        val channel = extractor.initialPage.items
-            .filterIsInstance<ChannelInfoItem>()
-            .firstOrNull()
-            ?: return null
-
-        return channel.thumbnails
-            .maxByOrNull { thumbnail ->
-                thumbnail.height
-            }
-            ?.url
+        val ex = ServiceList.YouTube.getSearchExtractor(name, listOf("music_artists"), "")
+        ex.fetchPage()
+        val ch = ex.initialPage.items.filterIsInstance<ChannelInfoItem>().firstOrNull() ?: return null
+        return ch.thumbnails.maxByOrNull { it.height }?.url
     }
 }

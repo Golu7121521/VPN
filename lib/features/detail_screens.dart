@@ -52,7 +52,9 @@ class _CollectionView extends ConsumerWidget {
     required this.songsV,
     required this.onRetry,
     this.onDelete,
+    this.extraActions = const [],
   });
+  final List<Widget> extraActions;
   final String title, sub;
   final String? cover;
   final AsyncValue<List<Song>> songsV;
@@ -65,8 +67,10 @@ class _CollectionView extends ConsumerWidget {
     final side = math.min(MediaQuery.sizeOf(context).width * .6, 300.0);
     final list = songsV.valueOrNull ?? <Song>[];
     return Scaffold(
+      bottomNavigationBar: const SafeArea(top: false, child: MiniPlayer(hero: false)),
       appBar: AppBar(
         actions: [
+          ...extraActions,
           if (onDelete != null)
             PopupMenuButton<String>(
               onSelected: (_) => onDelete!(),
@@ -166,17 +170,33 @@ class CollectionScreen extends ConsumerWidget {
 
 /// A YouTube Music album, playlist or podcast.
 class RemoteCollectionScreen extends ConsumerWidget {
-  const RemoteCollectionScreen({super.key, required this.url, required this.name, required this.cover});
-  final String url, name, cover;
+  const RemoteCollectionScreen({super.key, required this.url, required this.name, required this.cover, this.kind = 'playlist'});
+  final String url, name, cover, kind;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final v = ref.watch(playlistDetailsProvider(url));
     final p = v.valueOrNull;
+    final title = (p?.name.isNotEmpty ?? false) ? p!.name : name;
+    final coverUrl = (p?.cover.isNotEmpty ?? false) ? p!.cover : cover;
+    final saved = ref.watch(libraryProvider).hasCollection(url);
     return _CollectionView(
-      title: (p?.name.isNotEmpty ?? false) ? p!.name : name,
+      extraActions: [
+        IconButton(
+          tooltip: saved ? 'Remove from library' : 'Add to library',
+          icon: Icon(saved ? Icons.bookmark_added_rounded : Icons.bookmark_add_outlined,
+              color: saved ? AppColors.primary : Colors.white),
+          onPressed: () {
+            ref.read(libraryProvider.notifier).toggleCollection(
+                Playlist(id: url, name: title, description: p?.description ?? '', cover: coverUrl, kind: kind));
+            ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(saved ? 'Removed from your library' : 'Added to your library')));
+          },
+        ),
+      ],
+      title: title,
       sub: p == null ? '' : '${p.description}${p.description.isEmpty ? '' : ' • '}${p.songs.length} songs',
-      cover: (p?.cover.isNotEmpty ?? false) ? p!.cover : cover,
+      cover: coverUrl,
       songsV: v.whenData((d) => d.songs),
       onRetry: () => ref.invalidate(playlistDetailsProvider(url)),
     );
@@ -201,7 +221,10 @@ class ArtistScreen extends ConsumerWidget {
     final songs = songsV.requireValue;
     final image = songs.isEmpty ? '' : songs.first.artwork;
 
+    final inLibrary = ref.watch(libraryProvider).hasArtist(name);
+    final isFav = ref.watch(tasteProvider).artists.contains(name);
     return Scaffold(
+      bottomNavigationBar: const SafeArea(top: false, child: MiniPlayer(hero: false)),
       body: ListView(padding: EdgeInsets.zero, children: [
         Stack(children: [
           SizedBox(
@@ -231,6 +254,29 @@ class ArtistScreen extends ConsumerWidget {
         _PlayShuffleRow(
           onPlay: () => ctl.playQueue(songs, 0),
           onShuffle: () => ctl.playQueue([...songs]..shuffle(), 0),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(spacing: 10, runSpacing: 8, children: [
+            OutlinedButton.icon(
+              onPressed: () => ref.read(libraryProvider.notifier).toggleArtist(name),
+              icon: Icon(inLibrary ? Icons.bookmark_added_rounded : Icons.bookmark_add_outlined, size: 18),
+              label: Text(inLibrary ? 'In library' : 'Add to library'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: () {
+                ref.read(tasteProvider.notifier).toggleArtist(name);
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(isFav ? 'Removed from Your artists' : 'Added to Your artists. Your home feed will update.')));
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: isFav ? AppColors.primary : AppColors.surfaceVariant,
+                foregroundColor: Colors.white,
+              ),
+              icon: Icon(isFav ? Icons.check_rounded : Icons.add_rounded, size: 18),
+              label: Text(isFav ? 'In Your artists' : 'Add to Your artists'),
+            ),
+          ]),
         ),
         const SectionHeader('Popular'),
         for (var i = 0; i < songs.length; i++) SongTile(song: songs[i], onTap: () => ctl.playQueue(songs, i)),

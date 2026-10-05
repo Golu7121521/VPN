@@ -1,86 +1,30 @@
-package com.example.musify;
+package com.roxyfy;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 
-/**
- * Compatibility wrapper for URL encoding/decoding.
- *
- * Some Android/library combinations reference the
- * Charset-based URLEncoder/URLDecoder APIs. These wrappers
- * keep compatibility with older Android API levels.
- */
+/** Android < 13 lacks URLEncoder/URLDecoder (String, Charset); library jars are redirected here. */
 public final class UrlCompat {
-
-    private UrlCompat() {
-        // Utility class.
+    public static String encode(String s, String enc) throws UnsupportedEncodingException {
+        return URLEncoder.encode(s, enc);
     }
-
-    public static String encode(
-            String value,
-            String encoding
-    ) throws UnsupportedEncodingException {
-
-        return URLEncoder.encode(value, encoding);
+    public static String encode(String s, Charset c) {
+        try { return URLEncoder.encode(s, c.name()); }
+        catch (UnsupportedEncodingException e) { throw new RuntimeException(e); }
     }
-
-    public static String encode(
-            String value,
-            Charset charset
-    ) {
-
-        try {
-            return URLEncoder.encode(
-                    value,
-                    charset.name()
-            );
-        } catch (UnsupportedEncodingException e) {
-            throw new RuntimeException(e);
-        }
+    public static String encode(String s) {
+        return encode(s, Charset.forName("UTF-8"));
     }
-
-    public static String encode(String value) {
-
-        return encode(
-                value,
-                StandardCharsets.UTF_8
-        );
+    public static String decode(String s, String enc) throws UnsupportedEncodingException {
+        return URLDecoder.decode(s, enc);
     }
-
-    public static String decode(
-            String value,
-            String encoding
-    ) throws UnsupportedEncodingException {
-
-        return URLDecoder.decode(
-                value,
-                encoding
-        );
+    public static String decode(String s, Charset c) {
+        try { return URLDecoder.decode(s, c.name()); }
+        catch (UnsupportedEncodingException e) { throw new RuntimeException(e); }
     }
-
-    public static String decode(
-            String value,
-            Charset charset
-    ) {
-
-        try {
-            return URLDecoder.decode(
-                    value,
-                    charset.name()
-            );
-        } catch (UnsupportedEncodingException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public static String decode(String value) {
-
-        return decode(
-                value,
-                StandardCharsets.UTF_8
-        );
+    public static String decode(String s) {
+        return decode(s, Charset.forName("UTF-8"));
     }
 }

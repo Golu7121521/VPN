@@ -1,6 +1,6 @@
-# MUSIFY
+# ROXYFY
 
-Flutter music app (Riverpod + GoRouter + just_audio). Real YouTube Music search and playback via
+Roxyfy: Flutter music app (Riverpod + GoRouter + just_audio + audio_service). Real YouTube Music data via NewPipeExtractor.
 NewPipeExtractor (Android platform channel in `android_extra/MainActivity.kt`).
 
 Stored in the repo: `lib/`, `pubspec.yaml`, `android_extra/` and the workflow.

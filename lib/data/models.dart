@@ -43,8 +43,12 @@ class Playlist {
     required this.cover,
     this.songs = const [],
     this.query,
+    this.kind = '',
   });
   final String id, name, description, cover;
+
+  /// album | playlist | podcast (for things saved to the library)
+  final String kind;
   final List<Song> songs;
 
   /// Featured playlists are filled by searching this query.
@@ -57,6 +61,7 @@ class Playlist {
         cover: cover,
         songs: songs ?? this.songs,
         query: query,
+        kind: kind,
       );
 }
 
