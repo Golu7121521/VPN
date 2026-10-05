@@ -430,9 +430,14 @@ void showSongSheet(BuildContext context, Song song) {
             onTap: () { Navigator.pop(ctx); _pickPlaylist(context, song); },
           ),
           ListTile(
+            leading: const Icon(Icons.download_rounded),
+            title: const Text('Download'),
+            onTap: () { ref.read(downloadsProvider.notifier).download(song); Navigator.pop(ctx); },
+          ),
+          ListTile(
             leading: const Icon(Icons.person_rounded),
             title: const Text('Go to artist'),
-            onTap: () { Navigator.pop(ctx); context.push('/artist/${Uri.encodeComponent(song.artistName)}'); },
+            onTap: () { Navigator.pop(ctx); openArtist(context, song.artistName); },
           ),
         ]),
       );
@@ -530,28 +535,14 @@ class _CreatePlaylistSheetState extends ConsumerState<_CreatePlaylistSheet> {
   }
 }
 
-void showNotifications(BuildContext context) {
-  const items = [
-    (Icons.new_releases_rounded, 'New music', 'Fresh Release is updated with 8 new tracks'),
-    (Icons.playlist_add_check_rounded, 'Playlist update', 'Chill Vibes has new songs'),
-    (Icons.recommend_rounded, 'Recommended', 'Because you like Luna Ray'),
-  ];
-  showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: AppColors.surface,
-    builder: (_) => SafeArea(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('Notifications', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-        ),
-        for (final i in items)
-          ListTile(
-            leading: CircleAvatar(backgroundColor: AppColors.surfaceVariant, child: Icon(i.$1, color: AppColors.primary)),
-            title: Text(i.$2),
-            subtitle: Text(i.$3, style: const TextStyle(color: AppColors.textSecondary)),
-          ),
-      ]),
-    ),
-  );
+/// Opens an artist page; closes the full-screen player first so the page is actually visible.
+void openArtist(BuildContext context, String name) {
+  final router = GoRouter.of(context);
+  if (router.routeInformationProvider.value.uri.path == '/player') router.pop();
+  router.push('/artist/${Uri.encodeComponent(name)}');
+}
+
+/// Opens a YouTube playlist / album / podcast.
+void openCollection(BuildContext context, Playlist p) {
+  context.push(Uri(path: '/collection', queryParameters: {'u': p.id, 'n': p.name, 'c': p.cover}).toString());
 }

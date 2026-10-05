@@ -1,6 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:video_player/video_player.dart';
 
 import '../core/theme.dart';
 import '../core/widgets.dart';
@@ -16,6 +19,8 @@ class NowPlayingScreen extends ConsumerStatefulWidget {
 class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 240));
   double _dy = 0, _from = 0, _to = 0;
+  bool _video = false, _loadingVideo = false;
+  VideoPlayerController? _vc;
 
   @override
   void initState() {
@@ -26,6 +31,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
   @override
   void dispose() {
     _c.dispose();
+    _vc?.dispose();
     super.dispose();
   }
 
@@ -35,6 +41,110 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
     _c.forward(from: 0).then((_) {
       if (pop && mounted) context.pop();
     });
+  }
+
+  /// Video mode: a muted video follows the audio player, which stays the master clock.
+  Future<void> _enableVideo(Song s) async {
+    setState(() => _loadingVideo = true);
+    VideoPlayerController? vc;
+    try {
+      final url = await ref.read(musicRepoProvider).videoUrl(s);
+      if (url == null) throw Exception('no video');
+      vc = VideoPlayerController.networkUrl(
+        Uri.parse(url),
+        httpHeaders: {'User-Agent': kUserAgent},
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+      );
+      await vc.initialize();
+      await vc.setVolume(0);
+      await vc.seekTo(ref.read(positionProvider).valueOrNull ?? Duration.zero);
+      if (!mounted || !_video) {
+        await vc.dispose();
+        return;
+      }
+      if (ref.read(playerProvider).playing) await vc.play();
+      final old = _vc;
+      setState(() {
+        _vc = vc;
+        _loadingVideo = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+    } catch (_) {
+      await vc?.dispose();
+      if (mounted) {
+        setState(() {
+          _video = false;
+          _loadingVideo = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Video is not available for this song')));
+      }
+    }
+  }
+
+  void _setMode(bool video, Song song) {
+    if (video == _video) return;
+    setState(() => _video = video);
+    if (video) {
+      _enableVideo(song);
+    } else {
+      final old = _vc;
+      setState(() => _vc = null);
+      WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+    }
+  }
+
+  Widget _modeToggle(Song song) {
+    Widget seg(String t, bool v) => GestureDetector(
+          onTap: () => _setMode(v, song),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+            decoration: BoxDecoration(
+              color: _video == v ? Colors.white.withAlpha(40) : Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(t, style: TextStyle(fontWeight: FontWeight.w700, color: _video == v ? Colors.white : AppColors.textSecondary)),
+          ),
+        );
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(color: Colors.black.withAlpha(60), borderRadius: BorderRadius.circular(24)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [seg('Song', false), seg('Video', true)]),
+    );
+  }
+
+  void _sleepSheet() {
+    final label = ref.read(playerProvider).sleepLabel;
+    final ctl = ref.read(playerProvider.notifier);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Sleep timer', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+          ),
+          for (final o in const [('Off', null), ('15 min', 15), ('30 min', 30), ('45 min', 45), ('1 hour', 60), ('End of song', -1)])
+            ListTile(
+              title: Text(o.$1),
+              trailing: (o.$2 == null ? label == null : (o.$2 == -1 ? label == 'End of song' : label == '${o.$2} min'))
+                  ? const Icon(Icons.check_rounded, color: AppColors.primary)
+                  : null,
+              onTap: () {
+                if (o.$2 == null) {
+                  ctl.setSleep(null);
+                } else if (o.$2 == -1) {
+                  ctl.setSleep(null, endOfSong: true);
+                } else {
+                  ctl.setSleep(Duration(minutes: o.$2!));
+                }
+                Navigator.pop(ctx);
+              },
+            ),
+        ]),
+      ),
+    );
   }
 
   @override
@@ -50,8 +160,26 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
     final loading = ref.watch(playerProvider.select((s) => s.loading));
     final shuffle = ref.watch(playerProvider.select((s) => s.shuffle));
     final repeat = ref.watch(playerProvider.select((s) => s.repeat));
+    final sleep = ref.watch(playerProvider.select((s) => s.sleepLabel));
     final liked = ref.watch(likesProvider).contains(song.id);
     final ctl = ref.read(playerProvider.notifier);
+
+    ref.listen(playerProvider.select((s) => s.playing), (_, p) {
+      final vc = _vc;
+      if (vc == null) return;
+      p ? vc.play() : vc.pause();
+    });
+    ref.listen(playerProvider.select((s) => s.current?.id), (_, id) {
+      final s = ref.read(playerProvider).current;
+      if (_video && s != null) _enableVideo(s);
+    });
+    ref.listen(positionProvider, (_, pos) {
+      final vc = _vc;
+      final p = pos.valueOrNull;
+      if (vc != null && p != null && vc.value.isInitialized && (vc.value.position - p).abs() > const Duration(milliseconds: 1500)) {
+        vc.seekTo(p);
+      }
+    });
 
     final page = Scaffold(
       body: Container(
@@ -72,7 +200,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
                   icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32),
                   onPressed: () => context.pop(),
                 ),
-                const Expanded(child: Center(child: Text('Now Playing', style: TextStyle(fontWeight: FontWeight.w600)))),
+                Expanded(child: Center(child: _modeToggle(song))),
                 IconButton(
                   tooltip: 'More options',
                   icon: const Icon(Icons.more_vert),
@@ -82,42 +210,54 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
               Expanded(
                 child: Center(
                   child: LayoutBuilder(builder: (_, box) {
-                    final side = (box.maxWidth < box.maxHeight ? box.maxWidth : box.maxHeight) - 16;
-                    return Hero(
-                      tag: 'now-art',
-                      child: AnimatedScale(
-                        scale: playing ? 1 : .9,
-                        duration: const Duration(milliseconds: 400),
-                        curve: Curves.easeOutCubic,
-                        child: AnimatedContainer(
+                    final side = math.min(box.maxWidth, box.maxHeight) - 16;
+                    final showVideo = _video && _vc != null && _vc!.value.isInitialized;
+                    if (showVideo) {
+                      return ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: SizedBox(
+                          width: box.maxWidth,
+                          child: AspectRatio(aspectRatio: _vc!.value.aspectRatio, child: VideoPlayer(_vc!)),
+                        ),
+                      );
+                    }
+                    return Stack(alignment: Alignment.center, children: [
+                      Hero(
+                        tag: 'now-art',
+                        child: AnimatedScale(
+                          scale: playing ? 1 : .9,
                           duration: const Duration(milliseconds: 400),
-                          width: side,
-                          height: side,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(24),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.primary.withAlpha(playing ? 120 : 40),
-                                blurRadius: 50,
-                                spreadRadius: 2,
-                              ),
-                            ],
+                          curve: Curves.easeOutCubic,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 400),
+                            width: side,
+                            height: side,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(24),
+                              boxShadow: [
+                                BoxShadow(color: AppColors.primary.withAlpha(playing ? 120 : 40), blurRadius: 50, spreadRadius: 2),
+                              ],
+                            ),
+                            child: Artwork(song.artwork, size: side, radius: 24),
                           ),
-                          child: Artwork(song.artwork, size: side, radius: 24),
                         ),
                       ),
-                    );
+                      if (_loadingVideo) const CircularProgressIndicator(color: Colors.white),
+                    ]);
                   }),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Row(children: [
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(song.title,
                         maxLines: 1, overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-                    Text(song.artistName, style: const TextStyle(color: AppColors.textSecondary, fontSize: 16)),
+                    GestureDetector(
+                      onTap: () => openArtist(context, song.artistName),
+                      child: Text(song.artistName, style: const TextStyle(color: AppColors.textSecondary, fontSize: 16)),
+                    ),
                   ]),
                 ),
                 IconButton(
@@ -135,9 +275,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
                   ),
                 ),
               ]),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               const MusicSlider(),
-              const SizedBox(height: 8),
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                 IconButton(
                   tooltip: shuffle ? 'Shuffle on' : 'Shuffle off',
@@ -156,12 +295,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
                   onPressed: ctl.cycleRepeat,
                 ),
               ]),
+              const SizedBox(height: 12),
               Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                _DownloadButton(song: song),
                 IconButton(
-                  tooltip: 'Connect to a device',
-                  icon: const Icon(Icons.cast_rounded, color: AppColors.textSecondary),
-                  onPressed: () => ScaffoldMessenger.of(context)
-                      .showSnackBar(const SnackBar(content: Text('No devices found nearby'))),
+                  tooltip: sleep == null ? 'Sleep timer' : 'Sleep timer: $sleep',
+                  icon: Icon(Icons.bedtime_outlined, color: sleep == null ? AppColors.textSecondary : AppColors.primary),
+                  onPressed: _sleepSheet,
                 ),
                 IconButton(
                   tooltip: 'Lyrics',
@@ -174,7 +314,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
                   onPressed: () => context.push('/queue'),
                 ),
               ]),
-              const SizedBox(height: 8),
+              const SizedBox(height: 28),
             ]),
           ),
         ),
@@ -192,6 +332,42 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
         }
       },
       child: Transform.translate(offset: Offset(0, _dy), child: page),
+    );
+  }
+}
+
+class _DownloadButton extends ConsumerWidget {
+  const _DownloadButton({required this.song});
+  final Song song;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final d = ref.watch(downloadsProvider);
+    final p = d.progress[song.id];
+    if (p != null) {
+      return SizedBox(
+        width: 48,
+        height: 48,
+        child: Center(
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 3, value: p == 0 ? null : p, color: AppColors.primary),
+          ),
+        ),
+      );
+    }
+    final done = d.pathFor(song.id) != null;
+    return IconButton(
+      tooltip: done ? 'Downloaded' : 'Download',
+      icon: Icon(done ? Icons.download_done_rounded : Icons.download_rounded,
+          color: done ? AppColors.primary : AppColors.textSecondary),
+      onPressed: done
+          ? () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Already downloaded')))
+          : () {
+              ref.read(downloadsProvider.notifier).download(song);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Downloading in best quality...')));
+            },
     );
   }
 }
@@ -310,12 +486,20 @@ class _LyricsTabState extends ConsumerState<_LyricsTab> {
       return const EmptyState(icon: Icons.lyrics_outlined, title: 'No lyrics', message: 'Play a song to see its lyrics.');
     }
     return AsyncView<List<LyricLine>>(
-      value: ref.watch(lyricsProvider(song.id)),
-      onRetry: () => ref.invalidate(lyricsProvider(song.id)),
+      value: ref.watch(lyricsProvider(song)),
+      onRetry: () => ref.invalidate(lyricsProvider(song)),
       builder: (lines) {
+        if (lines.isEmpty) {
+          return const EmptyState(
+            icon: Icons.lyrics_outlined,
+            title: 'No lyrics found',
+            message: "We couldn't find lyrics for this song.",
+          );
+        }
+        final synced = lines.first.at >= Duration.zero;
         final pos = ref.watch(positionProvider).valueOrNull ?? Duration.zero;
-        final active = lines.lastIndexWhere((l) => l.at <= pos);
-        if (active != _last) {
+        final active = synced ? lines.lastIndexWhere((l) => l.at <= pos) : -1;
+        if (synced && active != _last) {
           _last = active;
           WidgetsBinding.instance.addPostFrameCallback((_) => _scrollTo(active));
         }
@@ -333,7 +517,7 @@ class _LyricsTabState extends ConsumerState<_LyricsTab> {
               style: TextStyle(
                 fontSize: i == active ? 26 : 21,
                 fontWeight: FontWeight.w800,
-                color: i == active ? Colors.white : AppColors.textSecondary.withAlpha(150),
+                color: (!synced || i == active) ? Colors.white : AppColors.textSecondary.withAlpha(150),
               ),
               child: Text(lines[i].text),
             ),

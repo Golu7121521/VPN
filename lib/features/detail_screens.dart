@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
 import '../core/widgets.dart';
-import '../data/mock_data.dart';
 import '../data/models.dart';
 import '../state/providers.dart';
 
@@ -44,55 +43,33 @@ class _PlayShuffleRow extends StatelessWidget {
       );
 }
 
-/// Featured playlists (filled by a live search), user playlists and Liked Songs.
-class CollectionScreen extends ConsumerWidget {
-  const CollectionScreen({super.key, required this.id});
-  final String id;
+/// Shared layout for Liked Songs, your playlists and YouTube albums / playlists / podcasts.
+class _CollectionView extends ConsumerWidget {
+  const _CollectionView({
+    required this.title,
+    required this.sub,
+    required this.cover,
+    required this.songsV,
+    required this.onRetry,
+    this.onDelete,
+  });
+  final String title, sub;
+  final String? cover;
+  final AsyncValue<List<Song>> songsV;
+  final VoidCallback onRetry;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final userPl = ref.watch(userPlaylistsProvider);
-    final likes = ref.watch(likesProvider);
     final ctl = ref.read(playerProvider.notifier);
-
-    String title = '', sub = '';
-    String? cover;
-    var isUser = false;
-    AsyncValue<List<Song>> songsV = const AsyncData([]);
-
-    if (id == 'liked') {
-      title = 'Liked Songs';
-      sub = '${likes.length} songs';
-      songsV = AsyncData(likes.songs);
-    } else {
-      final m = [...userPl, ...featuredPlaylists].where((p) => p.id == id);
-      if (m.isNotEmpty) {
-        final p = m.first;
-        isUser = userPl.any((u) => u.id == id);
-        title = p.name;
-        cover = p.cover;
-        sub = p.description;
-        songsV = p.query != null ? ref.watch(songsQueryProvider(p.query!)) : AsyncData(p.songs);
-      }
-    }
-    if (title.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: const EmptyState(icon: Icons.error_outline, title: 'Not found', message: 'This item no longer exists.'),
-      );
-    }
-
     final side = math.min(MediaQuery.sizeOf(context).width * .6, 300.0);
     final list = songsV.valueOrNull ?? <Song>[];
     return Scaffold(
       appBar: AppBar(
         actions: [
-          if (isUser)
+          if (onDelete != null)
             PopupMenuButton<String>(
-              onSelected: (_) {
-                ref.read(userPlaylistsProvider.notifier).remove(id);
-                context.pop();
-              },
+              onSelected: (_) => onDelete!(),
               itemBuilder: (_) => const [PopupMenuItem(value: 'delete', child: Text('Delete playlist'))],
             ),
         ],
@@ -104,14 +81,14 @@ class CollectionScreen extends ConsumerWidget {
               borderRadius: BorderRadius.circular(20),
               boxShadow: [BoxShadow(color: AppColors.primary.withAlpha(60), blurRadius: 40)],
             ),
-            child: cover == null
+            child: (cover == null || cover!.isEmpty)
                 ? Container(
                     width: side,
                     height: side,
                     decoration: BoxDecoration(gradient: AppColors.gradient, borderRadius: BorderRadius.circular(20)),
                     child: const Icon(Icons.favorite_rounded, size: 90),
                   )
-                : Artwork(cover, size: side, radius: 20),
+                : Artwork(cover!, size: side, radius: 20),
           ),
         ),
         Padding(
@@ -128,10 +105,7 @@ class CollectionScreen extends ConsumerWidget {
         ),
         songsV.when(
           loading: () => const SizedBox(height: 200, child: LoadingState()),
-          error: (_, __) => SizedBox(
-            height: 260,
-            child: ErrorState(onRetry: () => ref.invalidate(songsQueryProvider)),
-          ),
+          error: (_, __) => SizedBox(height: 260, child: ErrorState(onRetry: onRetry)),
           data: (l) => l.isEmpty
               ? const SizedBox(
                   height: 220,
@@ -150,6 +124,65 @@ class CollectionScreen extends ConsumerWidget {
   }
 }
 
+/// Liked Songs and playlists created on this phone.
+class CollectionScreen extends ConsumerWidget {
+  const CollectionScreen({super.key, required this.id});
+  final String id;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final userPl = ref.watch(userPlaylistsProvider);
+    final likes = ref.watch(likesProvider);
+    if (id == 'liked') {
+      return _CollectionView(
+        title: 'Liked Songs',
+        sub: '${likes.length} songs',
+        cover: null,
+        songsV: AsyncData(likes.songs),
+        onRetry: () {},
+      );
+    }
+    final m = userPl.where((p) => p.id == id);
+    if (m.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: const EmptyState(icon: Icons.error_outline, title: 'Not found', message: 'This playlist no longer exists.'),
+      );
+    }
+    final p = m.first;
+    return _CollectionView(
+      title: p.name,
+      sub: '${p.description} • ${p.songs.length} songs',
+      cover: p.cover,
+      songsV: AsyncData(p.songs),
+      onRetry: () {},
+      onDelete: () {
+        ref.read(userPlaylistsProvider.notifier).remove(id);
+        context.pop();
+      },
+    );
+  }
+}
+
+/// A YouTube Music album, playlist or podcast.
+class RemoteCollectionScreen extends ConsumerWidget {
+  const RemoteCollectionScreen({super.key, required this.url, required this.name, required this.cover});
+  final String url, name, cover;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final v = ref.watch(playlistDetailsProvider(url));
+    final p = v.valueOrNull;
+    return _CollectionView(
+      title: (p?.name.isNotEmpty ?? false) ? p!.name : name,
+      sub: p == null ? '' : '${p.description}${p.description.isEmpty ? '' : ' • '}${p.songs.length} songs',
+      cover: (p?.cover.isNotEmpty ?? false) ? p!.cover : cover,
+      songsV: v.whenData((d) => d.songs),
+      onRetry: () => ref.invalidate(playlistDetailsProvider(url)),
+    );
+  }
+}
+
 class ArtistScreen extends ConsumerWidget {
   const ArtistScreen({super.key, required this.name});
   final String name;
@@ -157,7 +190,7 @@ class ArtistScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final songsV = ref.watch(songsQueryProvider(name));
-    final others = ref.watch(artistsProvider).valueOrNull ?? [];
+    final others = ref.watch(topKeyProvider).split('|').where((e) => e.isNotEmpty && e != name).toList();
     final ctl = ref.read(playerProvider.notifier);
     final w = (MediaQuery.sizeOf(context).width * .38).clamp(120.0, 180.0).toDouble();
 
@@ -167,7 +200,6 @@ class ArtistScreen extends ConsumerWidget {
     if (!songsV.hasValue) return Scaffold(appBar: AppBar(), body: const LoadingState());
     final songs = songsV.requireValue;
     final image = songs.isEmpty ? '' : songs.first.artwork;
-    final related = others.where((a) => a.name != name).take(8).toList();
 
     return Scaffold(
       body: ListView(padding: EdgeInsets.zero, children: [
@@ -202,19 +234,19 @@ class ArtistScreen extends ConsumerWidget {
         ),
         const SectionHeader('Popular'),
         for (var i = 0; i < songs.length; i++) SongTile(song: songs[i], onTap: () => ctl.playQueue(songs, i)),
-        if (related.isNotEmpty) ...[
+        if (others.isNotEmpty) ...[
           const SectionHeader('Related Artists'),
           HList(
             height: w * .7 + 50,
-            count: related.length,
+            count: others.length,
             itemBuilder: (_, i) => PosterCard(
-              imageUrl: related[i].image,
-              image: ArtistImage(related[i].name, fallback: related[i].image, size: w * .7),
-              title: related[i].name,
+              imageUrl: '',
+              image: ArtistImage(others[i], size: w * .7),
+              title: others[i],
               subtitle: 'Artist',
               width: w * .7,
               circle: true,
-              onTap: () => context.push('/artist/${Uri.encodeComponent(related[i].id)}'),
+              onTap: () => context.push('/artist/${Uri.encodeComponent(others[i])}'),
             ),
           ),
         ],

@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/mock_data.dart';
@@ -17,32 +18,171 @@ const kUserAgent = 'Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firef
 // ---------- infrastructure ----------
 final prefsProvider = Provider<SharedPreferences>((ref) => throw UnimplementedError());
 final musicRepoProvider = Provider<MusicRepository>((ref) => NewPipeMusicRepository());
-final searchRepoProvider =
-    Provider<SearchRepository>((ref) => NewPipeSearchRepository(ref.watch(musicRepoProvider)));
+
+typedef QueryFilter = ({String q, String f});
 
 final songsQueryProvider =
     FutureProvider.family<List<Song>, String>((ref, q) => ref.watch(musicRepoProvider).songs(q));
-final songsProvider = FutureProvider<List<Song>>((ref) => ref.watch(songsQueryProvider('trending songs').future));
-final newReleasesProvider =
-    FutureProvider<List<Song>>((ref) => ref.watch(songsQueryProvider('new songs 2026').future));
-final recommendedProvider =
-    FutureProvider<List<Song>>((ref) => ref.watch(songsQueryProvider('latest hindi songs').future));
-final artistsProvider = FutureProvider<List<Artist>>((ref) async {
-  final a = await ref.watch(songsProvider.future);
-  final b = await ref.watch(newReleasesProvider.future);
-  return artistsFrom([...a, ...b]).take(10).toList();
-});
-final playlistsProvider = FutureProvider<List<Playlist>>((ref) async => featuredPlaylists);
+final songsFilterProvider = FutureProvider.family<List<Song>, QueryFilter>(
+    (ref, k) => ref.watch(musicRepoProvider).songs(k.q, filter: k.f));
+final playlistsFilterProvider = FutureProvider.family<List<Playlist>, QueryFilter>(
+    (ref, k) => ref.watch(musicRepoProvider).playlists(k.q, filter: k.f));
+final artistsSearchProvider =
+    FutureProvider.family<List<Artist>, String>((ref, q) => ref.watch(musicRepoProvider).artists(q));
+final playlistDetailsProvider = FutureProvider.family<Playlist, String>(
+    (ref, url) => ref.watch(musicRepoProvider).playlistDetails(url));
 final artistImageProvider =
     FutureProvider.family<String?, String>((ref, name) => ref.watch(musicRepoProvider).artistImage(name));
 final suggestionsProvider = FutureProvider.family<List<String>, String>(
     (ref, q) => ref.watch(musicRepoProvider).suggestions(q));
-final lyricsProvider = FutureProvider.family<List<LyricLine>, String>(
-    (ref, id) => ref.watch(musicRepoProvider).lyrics(id));
-final searchProvider =
-    FutureProvider.family<SearchResults, String>((ref, q) => ref.watch(searchRepoProvider).search(q));
+final lyricsProvider =
+    FutureProvider.family<List<LyricLine>, Song>((ref, s) => ref.watch(musicRepoProvider).lyrics(s));
+final trendingProvider =
+    FutureProvider<List<Song>>((ref) => ref.watch(songsQueryProvider('trending songs 2026').future));
 
-// ---------- likes (full songs are stored so they survive restarts) ----------
+// ---------- taste (favorites chosen at first launch + what you listen to) ----------
+class TasteState {
+  const TasteState({this.onboarded = false, this.artists = const [], this.langs = const [], this.plays = const {}});
+  final bool onboarded;
+  final List<String> artists, langs;
+  final Map<String, int> plays;
+
+  /// Favorite artists plus the ones you actually play most.
+  List<String> get topArtists {
+    final score = <String, int>{for (final a in artists) a: 3};
+    plays.forEach((k, v) => score[k] = (score[k] ?? 0) + v);
+    final l = score.keys.toList()..sort((a, b) => score[b]!.compareTo(score[a]!));
+    return l.take(5).toList();
+  }
+}
+
+class TasteNotifier extends Notifier<TasteState> {
+  @override
+  TasteState build() {
+    final p = ref.watch(prefsProvider);
+    final plays = <String, int>{};
+    try {
+      (jsonDecode(p.getString('plays') ?? '{}') as Map).forEach((k, v) => plays[k as String] = v as int);
+    } catch (_) {}
+    return TasteState(
+      onboarded: p.getBool('onboarded') ?? false,
+      artists: p.getStringList('fav_artists') ?? [],
+      langs: p.getStringList('fav_langs') ?? [],
+      plays: plays,
+    );
+  }
+
+  void setFavorites(List<String> artists, List<String> langs) {
+    final p = ref.read(prefsProvider);
+    p.setBool('onboarded', true);
+    p.setStringList('fav_artists', artists);
+    p.setStringList('fav_langs', langs);
+    state = TasteState(onboarded: true, artists: artists, langs: langs, plays: state.plays);
+  }
+
+  void recordPlay(String artistName) {
+    final a = artistName.split(RegExp(r'[,&]')).first.trim();
+    if (a.isEmpty || a == 'Unknown artist') return;
+    final plays = {...state.plays, a: (state.plays[a] ?? 0) + 1};
+    ref.read(prefsProvider).setString('plays', jsonEncode(plays));
+    state = TasteState(onboarded: state.onboarded, artists: state.artists, langs: state.langs, plays: plays);
+  }
+}
+
+final tasteProvider = NotifierProvider<TasteNotifier, TasteState>(TasteNotifier.new);
+final topKeyProvider = Provider<String>((ref) => ref.watch(tasteProvider.select((t) => t.topArtists.join('|'))));
+final langKeyProvider = Provider<String>((ref) => ref.watch(tasteProvider.select((t) => t.langs.join('|'))));
+
+// ---------- personalised home feed ----------
+class FeedRow {
+  const FeedRow(this.title, {this.songs = const [], this.playlists = const []});
+  final String title;
+  final List<Song> songs;
+  final List<Playlist> playlists;
+}
+
+Future<List<Song>> _safe(Future<List<Song>> f) => f.catchError((_) => <Song>[]);
+
+List<String> _split(String key) => key.isEmpty ? <String>[] : key.split('|');
+
+final quickPicksProvider = FutureProvider<List<Song>>((ref) async {
+  final artists = _split(ref.watch(topKeyProvider));
+  final langs = _split(ref.watch(langKeyProvider));
+  final lists = await Future.wait([
+    for (final a in artists.take(4)) _safe(ref.watch(songsQueryProvider('$a songs').future)),
+    for (final l in langs.take(2)) _safe(ref.watch(songsQueryProvider('top $l songs').future)),
+    if (artists.isEmpty && langs.isEmpty) _safe(ref.watch(trendingProvider.future)),
+  ]);
+  final out = <Song>[];
+  final seen = <String>{};
+  for (var i = 0; i < 8; i++) {
+    for (final l in lists) {
+      if (i < l.length && seen.add(l[i].id)) out.add(l[i]);
+    }
+  }
+  return out.take(20).toList();
+});
+
+final feedRowsProvider = FutureProvider<List<FeedRow>>((ref) async {
+  final artists = _split(ref.watch(topKeyProvider));
+  final langs = _split(ref.watch(langKeyProvider));
+  final specs = <(String, Future<List<Song>>)>[
+    for (final a in artists.take(3)) ('More from $a', _safe(ref.watch(songsQueryProvider('$a songs').future))),
+    for (final l in langs.take(3)) ('Latest $l songs', _safe(ref.watch(songsQueryProvider('latest $l songs 2026').future))),
+    ('Trending now', _safe(ref.watch(trendingProvider.future))),
+  ];
+  final rows = <FeedRow>[];
+  for (final s in specs) {
+    final l = await s.$2;
+    if (l.isNotEmpty) rows.add(FeedRow(s.$1, songs: l));
+  }
+  return rows;
+});
+
+const moodQueries = {
+  'Romance': 'romantic',
+  'Relax': 'relaxing chill',
+  'Feel good': 'feel good happy',
+  'Party': 'party dance',
+  'Energise': 'energetic pump up',
+  'Sad': 'sad heartbreak',
+  'Work out': 'workout gym',
+  'Sleep': 'sleep calm',
+  'Focus': 'focus study lofi',
+};
+
+final moodFeedProvider = FutureProvider.family<List<FeedRow>, String>((ref, mood) async {
+  final langs = _split(ref.watch(langKeyProvider));
+  final rows = <FeedRow>[];
+  if (mood == 'Podcasts') {
+    final l = langs.isEmpty ? <String>['Hindi'] : langs.take(2).toList();
+    for (final lang in l) {
+      try {
+        final p = await ref.watch(playlistsFilterProvider((q: '$lang podcast', f: 'playlists')).future);
+        if (p.isNotEmpty) rows.add(FeedRow('$lang podcasts', playlists: p));
+      } catch (_) {}
+      try {
+        final s = await ref.watch(songsFilterProvider((q: '$lang podcast episode', f: 'videos')).future);
+        if (s.isNotEmpty) rows.add(FeedRow('Latest $lang episodes', songs: s));
+      } catch (_) {}
+    }
+    return rows;
+  }
+  final phrase = moodQueries[mood] ?? mood.toLowerCase();
+  final queries = <(String, String)>[
+    for (final l in langs.take(2)) ('$mood · $l', '$phrase $l songs'),
+    (mood, '$phrase songs'),
+  ];
+  for (final q in queries) {
+    try {
+      final s = await ref.watch(songsQueryProvider(q.$2).future);
+      if (s.isNotEmpty) rows.add(FeedRow(q.$1, songs: s));
+    } catch (_) {}
+  }
+  return rows;
+});
+
+// ---------- likes ----------
 class Likes {
   const Likes(this.songs);
   final List<Song> songs;
@@ -97,42 +237,36 @@ class RecentsNotifier extends Notifier<List<String>> {
 
 final recentsProvider = NotifierProvider<RecentsNotifier, List<String>>(RecentsNotifier.new);
 
-// ---------- settings ----------
-class SettingsNotifier extends Notifier<Map<String, Object>> {
-  static const defaults = <String, Object>{
-    'quality': 'High',
-    'crossfade': false,
-    'gapless': true,
-    'normalize': true,
-    'wifiOnly': true,
-    'newReleases': true,
-    'recs': true,
-    'playlists': false,
-  };
-
-  @override
-  Map<String, Object> build() {
-    final p = ref.watch(prefsProvider);
-    return {for (final e in defaults.entries) e.key: p.get(e.key) ?? e.value};
-  }
-
-  void set(String key, Object value) {
-    state = {...state, key: value};
-    final p = ref.read(prefsProvider);
-    if (value is bool) {
-      p.setBool(key, value);
-    } else if (value is String) {
-      p.setString(key, value);
-    }
-  }
-}
-
-final settingsProvider = NotifierProvider<SettingsNotifier, Map<String, Object>>(SettingsNotifier.new);
-
-// ---------- user playlists (session only for now) ----------
+// ---------- user playlists (saved on the phone) ----------
 class UserPlaylistsNotifier extends Notifier<List<Playlist>> {
   @override
-  List<Playlist> build() => const [];
+  List<Playlist> build() {
+    final raw = ref.watch(prefsProvider).getStringList('user_playlists') ?? [];
+    return [
+      for (final r in raw)
+        () {
+          final m = jsonDecode(r) as Map<String, dynamic>;
+          return Playlist(
+            id: m['id'] as String,
+            name: m['name'] as String,
+            description: m['desc'] as String,
+            cover: m['cover'] as String,
+            songs: [for (final s in (m['songs'] as List)) Song.fromJson(s as Map<String, dynamic>)],
+          );
+        }(),
+    ];
+  }
+
+  void _save() => ref.read(prefsProvider).setStringList('user_playlists', [
+        for (final p in state)
+          jsonEncode({
+            'id': p.id,
+            'name': p.name,
+            'desc': p.description,
+            'cover': p.cover,
+            'songs': [for (final s in p.songs) s.toJson()],
+          }),
+      ]);
 
   Playlist add(String name, String desc) {
     final p = Playlist(
@@ -142,6 +276,7 @@ class UserPlaylistsNotifier extends Notifier<List<Playlist>> {
       cover: img('user${state.length}${name.length}'),
     );
     state = [p, ...state];
+    _save();
     return p;
   }
 
@@ -150,13 +285,126 @@ class UserPlaylistsNotifier extends Notifier<List<Playlist>> {
       for (final p in state)
         if (p.id == pid && !p.songs.contains(s)) p.copyWith(songs: [...p.songs, s]) else p,
     ];
+    _save();
   }
 
-  void remove(String id) => state = state.where((p) => p.id != id).toList();
+  void remove(String id) {
+    state = state.where((p) => p.id != id).toList();
+    _save();
+  }
 }
 
 final userPlaylistsProvider =
     NotifierProvider<UserPlaylistsNotifier, List<Playlist>>(UserPlaylistsNotifier.new);
+
+// ---------- downloads (best quality audio saved on the phone) ----------
+class DownloadsState {
+  const DownloadsState({this.items = const [], this.progress = const {}});
+  final List<({Song song, String path})> items;
+  final Map<String, double> progress;
+
+  String? pathFor(String id) {
+    for (final i in items) {
+      if (i.song.id == id) return i.path;
+    }
+    return null;
+  }
+}
+
+class DownloadsNotifier extends Notifier<DownloadsState> {
+  @override
+  DownloadsState build() {
+    final raw = ref.watch(prefsProvider).getStringList('downloads') ?? [];
+    final items = <({Song song, String path})>[];
+    for (final r in raw) {
+      final m = jsonDecode(r) as Map<String, dynamic>;
+      final path = m['p'] as String;
+      if (File(path).existsSync()) items.add((song: Song.fromJson(m['s'] as Map<String, dynamic>), path: path));
+    }
+    return DownloadsState(items: items);
+  }
+
+  void _save() => ref.read(prefsProvider).setStringList('downloads', [
+        for (final i in state.items) jsonEncode({'s': i.song.toJson(), 'p': i.path}),
+      ]);
+
+  void _progress(String id, double? v) {
+    final p = {...state.progress};
+    if (v == null) {
+      p.remove(id);
+    } else {
+      p[id] = v;
+    }
+    state = DownloadsState(items: state.items, progress: p);
+  }
+
+  Future<void> download(Song s) async {
+    if (state.pathFor(s.id) != null || state.progress.containsKey(s.id)) return;
+    _progress(s.id, 0);
+    File? file;
+    IOSink? sink;
+    final client = HttpClient()..userAgent = kUserAgent;
+    try {
+      final srcs = await ref.read(musicRepoProvider).audioSources(s);
+      final src = srcs.firstWhere((e) => e.method == 'progressive', orElse: () => srcs.first);
+      final dir = Directory('${(await getApplicationDocumentsDirectory()).path}/downloads');
+      await dir.create(recursive: true);
+      final ext = src.url.contains('audio%2Fwebm') ? 'webm' : 'm4a';
+      file = File('${dir.path}/${s.id.hashCode.toUnsigned(32)}.$ext');
+      sink = file.openWrite();
+      var start = 0;
+      int? total;
+      const chunk = 2 * 1024 * 1024;
+      while (true) {
+        final req = await client.getUrl(Uri.parse(src.url));
+        req.headers.set('Range', 'bytes=$start-${start + chunk - 1}');
+        final res = await req.close();
+        if (res.statusCode >= 400) throw Exception('HTTP ${res.statusCode}');
+        final cr = res.headers.value('content-range');
+        if (cr != null && cr.contains('/')) total = int.tryParse(cr.split('/').last);
+        var got = 0;
+        await sink.addStream(res.map((b) {
+          got += b.length;
+          return b;
+        }));
+        start += got;
+        if (res.statusCode != 206) break; // server sent the whole file
+        if (total != null) {
+          _progress(s.id, start / total);
+          if (start >= total) break;
+        } else if (got < chunk) {
+          break;
+        }
+      }
+      await sink.close();
+      state = DownloadsState(items: [(song: s, path: file.path), ...state.items], progress: state.progress);
+      _progress(s.id, null);
+      _save();
+    } catch (_) {
+      try {
+        await sink?.close();
+        file?.deleteSync();
+      } catch (_) {}
+      _progress(s.id, null);
+      ref.read(playerProvider.notifier).reportError('Download failed. Check your connection and try again.');
+    } finally {
+      client.close();
+    }
+  }
+
+  void remove(String id) {
+    final p = state.pathFor(id);
+    if (p != null) {
+      try {
+        File(p).deleteSync();
+      } catch (_) {}
+    }
+    state = DownloadsState(items: state.items.where((i) => i.song.id != id).toList(), progress: state.progress);
+    _save();
+  }
+}
+
+final downloadsProvider = NotifierProvider<DownloadsNotifier, DownloadsState>(DownloadsNotifier.new);
 
 // ---------- player (single global controller) ----------
 enum RepeatKind { off, all, one }
@@ -173,6 +421,7 @@ class PlayerStatus {
     this.history = const [],
     this.error,
     this.openCount = 0,
+    this.sleepLabel,
   });
   final int openCount;
   final List<Song> queue;
@@ -181,7 +430,7 @@ class PlayerStatus {
   final RepeatKind repeat;
   final Duration duration;
   final List<Song> history;
-  final String? error;
+  final String? error, sleepLabel;
 
   Song? get current => index >= 0 && index < queue.length ? queue[index] : null;
 
@@ -196,7 +445,9 @@ class PlayerStatus {
     List<Song>? history,
     String? error,
     int? openCount,
+    String? sleepLabel,
     bool clearError = false,
+    bool clearSleep = false,
   }) =>
       PlayerStatus(
         queue: queue ?? this.queue,
@@ -209,12 +460,15 @@ class PlayerStatus {
         history: history ?? this.history,
         error: clearError ? null : (error ?? this.error),
         openCount: openCount ?? this.openCount,
+        sleepLabel: clearSleep ? null : (sleepLabel ?? this.sleepLabel),
       );
 }
 
 class PlayerNotifier extends Notifier<PlayerStatus> {
   late final AudioPlayer _p;
   final _rng = Random();
+  Timer? _sleepTimer;
+  bool _sleepAtEnd = false;
   int _token = 0;
   bool _resolving = false;
   bool _completedHandled = false;
@@ -246,6 +500,7 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
       }),
     ];
     ref.onDispose(() {
+      _sleepTimer?.cancel();
       for (final s in subs) {
         s.cancel();
       }
@@ -256,11 +511,25 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
 
   List<Song> _hist(Song s) => [s, ...state.history.where((e) => e != s)].take(15).toList();
 
+  void reportError(String msg) => state = state.copyWith(error: msg);
+
   Future<void> playQueue(List<Song> songs, int index) async {
     if (songs.isEmpty) return;
     state = state.copyWith(
         queue: songs, index: index, history: _hist(songs[index]), openCount: state.openCount + 1);
     await _load();
+  }
+
+  AudioSource _source(AudioSrc a, MediaItem tag) {
+    final uri = Uri.parse(a.url);
+    switch (a.method) {
+      case 'hls':
+        return HlsAudioSource(uri, tag: tag);
+      case 'dash':
+        return DashAudioSource(uri, tag: tag);
+      default:
+        return AudioSource.uri(uri, tag: tag);
+    }
   }
 
   Future<void> _load() async {
@@ -269,24 +538,28 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     final my = ++_token;
     _completedHandled = false;
     _resolving = true;
+    ref.read(tasteProvider.notifier).recordPlay(s.artistName);
     state = state.copyWith(loading: true, playing: false, duration: s.duration, clearError: true);
     var stage = 'stream';
     String? url;
     try {
-      final urls = s.audioUrl.isNotEmpty ? [s.audioUrl] : await ref.read(musicRepoProvider).streamUrls(s);
+      final local = ref.read(downloadsProvider).pathFor(s.id);
+      final srcs = local != null
+          ? [AudioSrc(Uri.file(local).toString(), 'file')]
+          : (s.audioUrl.isNotEmpty ? [AudioSrc(s.audioUrl, 'progressive')] : await ref.read(musicRepoProvider).audioSources(s));
       if (my != _token) return;
-      url = urls.first;
+      url = srcs.first.url;
       stage = 'player';
       final tag = MediaItem(
         id: s.id,
         title: s.title,
         artist: s.artistName,
-        artUri: s.artwork.isEmpty ? null : Uri.parse(s.artwork),
+        artUri: s.artwork.isEmpty ? null : Uri.parse(resizeForNotification(s.artwork)),
       );
       var ok = false;
-      for (final u in urls) {
+      for (final a in srcs) {
         try {
-          await _p.setAudioSource(AudioSource.uri(Uri.parse(u), tag: tag));
+          await _p.setAudioSource(_source(a, tag));
           ok = true;
           break;
         } catch (_) {
@@ -294,9 +567,8 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
         }
       }
       if (!ok) {
-        // ExoPlayer could not open any URL directly; fetch it ourselves and feed the bytes.
         stage = 'proxy';
-        await _p.setAudioSource(_HttpStreamSource(urls.first, kUserAgent, tag));
+        await _p.setAudioSource(_HttpStreamSource(srcs.first.url, kUserAgent, tag));
       }
       if (my != _token) return;
       _resolving = false;
@@ -316,6 +588,7 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
   }
 
   Future<String> _probe(String url) async {
+    if (!url.startsWith('http')) return 'local file';
     try {
       final c = HttpClient()..userAgent = kUserAgent;
       final req = await c.getUrl(Uri.parse(url));
@@ -330,6 +603,11 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
   }
 
   void _onCompleted() {
+    if (_sleepAtEnd) {
+      _sleepAtEnd = false;
+      state = state.copyWith(playing: false, clearSleep: true);
+      return;
+    }
     if (state.repeat == RepeatKind.one) {
       _completedHandled = false;
       _p.seek(Duration.zero);
@@ -383,10 +661,26 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
   }
 
   void skipTo(int i) => _goto(i);
-
   void toggleShuffle() => state = state.copyWith(shuffle: !state.shuffle);
-
   void cycleRepeat() => state = state.copyWith(repeat: RepeatKind.values[(state.repeat.index + 1) % 3]);
+
+  /// Sleep timer: [d] minutes, or until the current song ends, or off.
+  void setSleep(Duration? d, {bool endOfSong = false}) {
+    _sleepTimer?.cancel();
+    _sleepAtEnd = false;
+    if (endOfSong) {
+      _sleepAtEnd = true;
+      state = state.copyWith(sleepLabel: 'End of song');
+    } else if (d == null) {
+      state = state.copyWith(clearSleep: true);
+    } else {
+      _sleepTimer = Timer(d, () {
+        _p.pause();
+        state = state.copyWith(clearSleep: true);
+      });
+      state = state.copyWith(sleepLabel: '${d.inMinutes} min');
+    }
+  }
 
   void playNext(Song s) {
     if (state.queue.isEmpty) {
@@ -426,9 +720,10 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     state = PlayerStatus(history: state.history, shuffle: state.shuffle, repeat: state.repeat);
   }
 
-  void clearHistory() => state = state.copyWith(history: const []);
   void clearError() => state = state.copyWith(clearError: true);
 }
+
+String resizeForNotification(String url) => url.replaceFirst(RegExp(r'=(w\d+-h\d+|s\d+)'), '=w544-h544');
 
 final playerProvider = NotifierProvider<PlayerNotifier, PlayerStatus>(PlayerNotifier.new);
 

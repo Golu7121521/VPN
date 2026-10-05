@@ -65,10 +65,3 @@ class LyricLine {
   final Duration at;
   final String text;
 }
-
-class SearchResults {
-  const SearchResults({this.songs = const [], this.artists = const [], this.playlists = const []});
-  final List<Song> songs;
-  final List<Artist> artists;
-  final List<Playlist> playlists;
-}

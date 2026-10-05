@@ -14,7 +14,6 @@ class LibraryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final likes = ref.watch(likesProvider);
     final userLists = ref.watch(userPlaylistsProvider);
-    final featured = ref.watch(playlistsProvider).valueOrNull ?? [];
     final ctl = ref.read(playerProvider.notifier);
     final liked = likes.songs;
     final artists = artistsFrom(liked);
@@ -46,7 +45,7 @@ class LibraryScreen extends ConsumerWidget {
           ),
           Expanded(
             child: TabBarView(children: [
-              ListView(children: [
+              ListView(padding: const EdgeInsets.only(bottom: 130), children: [
                 ListTile(
                   leading: Container(
                     width: 52,
@@ -58,13 +57,18 @@ class LibraryScreen extends ConsumerWidget {
                   subtitle: Text('${liked.length} songs', style: const TextStyle(color: AppColors.textSecondary)),
                   onTap: () => context.push('/playlist/liked'),
                 ),
-                for (final p in [...userLists, ...featured])
+                for (final p in userLists)
                   ListTile(
                     leading: Artwork(p.cover, size: 52, radius: 10),
                     title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text(p.query != null ? p.description : '${p.songs.length} songs',
-                        style: const TextStyle(color: AppColors.textSecondary)),
+                    subtitle: Text('${p.songs.length} songs', style: const TextStyle(color: AppColors.textSecondary)),
                     onTap: () => context.push('/playlist/${p.id}'),
+                  ),
+                if (userLists.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text('Tap + to create your own playlist.',
+                        textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary)),
                   ),
               ]),
               liked.isEmpty
@@ -74,6 +78,7 @@ class LibraryScreen extends ConsumerWidget {
                       message: 'Tap the heart on any song to save it here.',
                     )
                   : ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 130),
                       itemCount: liked.length,
                       itemBuilder: (_, i) => SongTile(song: liked[i], onTap: () => ctl.playQueue(liked, i)),
                     ),
@@ -84,6 +89,7 @@ class LibraryScreen extends ConsumerWidget {
                       message: 'Artists of songs you like will show up here.',
                     )
                   : ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 130),
                       itemCount: artists.length,
                       itemBuilder: (_, i) => ListTile(
                         leading: ArtistImage(artists[i].name, fallback: artists[i].image, size: 52),

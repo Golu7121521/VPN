@@ -7,6 +7,8 @@ import '../core/widgets.dart';
 import '../data/models.dart';
 import '../state/providers.dart';
 
+const _moods = ['Podcasts', 'Romance', 'Relax', 'Feel good', 'Party', 'Energise', 'Sad', 'Work out', 'Sleep', 'Focus'];
+
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
   @override
@@ -14,46 +16,10 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  int _chip = 0;
-  static const _chips = ['All', 'Music', 'Podcasts', 'Live'];
-
-  void _retry() {
-    ref.invalidate(songsQueryProvider);
-    ref.invalidate(songsProvider);
-    ref.invalidate(newReleasesProvider);
-    ref.invalidate(recommendedProvider);
-    ref.invalidate(artistsProvider);
-  }
+  String? _mood;
 
   @override
   Widget build(BuildContext context) {
-    final songs = ref.watch(songsProvider);
-    final playlists = ref.watch(playlistsProvider);
-
-    final Widget body;
-    if (songs.hasError) {
-      body = SliverFillRemaining(hasScrollBody: false, child: ErrorState(onRetry: _retry));
-    } else if (!songs.hasValue || !playlists.hasValue) {
-      body = const SliverFillRemaining(hasScrollBody: false, child: LoadingState());
-    } else if (_chip > 1) {
-      body = const SliverFillRemaining(
-        hasScrollBody: false,
-        child: EmptyState(
-          icon: Icons.podcasts,
-          title: 'Coming soon',
-          message: 'Podcasts and live shows will appear here.',
-        ),
-      );
-    } else {
-      body = _Content(
-        songs: songs.requireValue,
-        fresh: ref.watch(newReleasesProvider),
-        rec: ref.watch(recommendedProvider),
-        artists: ref.watch(artistsProvider),
-        playlists: playlists.requireValue,
-      );
-    }
-
     return SafeArea(
       bottom: false,
       child: CustomScrollView(slivers: [
@@ -85,115 +51,119 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              itemCount: _chips.length,
+              itemCount: _moods.length,
               separatorBuilder: (_, __) => const SizedBox(width: 8),
               itemBuilder: (_, i) => ChoiceChip(
-                label: Text(_chips[i]),
-                selected: _chip == i,
+                label: Text(_moods[i]),
+                selected: _mood == _moods[i],
                 showCheckmark: false,
                 selectedColor: AppColors.primary,
                 backgroundColor: AppColors.surfaceVariant,
                 side: BorderSide.none,
                 shape: const StadiumBorder(),
-                onSelected: (_) => setState(() => _chip = i),
+                onSelected: (v) => setState(() => _mood = v ? _moods[i] : null),
               ),
             ),
           ),
         ),
-        body,
+        if (_mood == null) const _DefaultFeed() else _MoodFeed(mood: _mood!),
       ]),
     );
   }
 }
 
-class _Content extends ConsumerWidget {
-  const _Content({
-    required this.songs,
-    required this.fresh,
-    required this.rec,
-    required this.artists,
-    required this.playlists,
-  });
-  final List<Song> songs;
-  final AsyncValue<List<Song>> fresh, rec;
-  final AsyncValue<List<Artist>> artists;
-  final List<Playlist> playlists;
+double _cardWidth(BuildContext c) => (MediaQuery.sizeOf(c).width * 0.4).clamp(130.0, 200.0).toDouble();
 
-  Widget _wait<T>(AsyncValue<T> v, Widget Function(T) b) => v.when(
-        data: b,
-        loading: () => const SizedBox(height: 120, child: LoadingState()),
-        error: (_, __) => const SizedBox.shrink(),
-      );
+Widget _songRow(WidgetRef ref, List<Song> list, double width) {
+  final ctl = ref.read(playerProvider.notifier);
+  return HList(
+    height: width + 58,
+    count: list.length,
+    itemBuilder: (_, i) => PosterCard(
+      imageUrl: list[i].artwork,
+      title: list[i].title,
+      subtitle: list[i].artistName,
+      width: width,
+      onTap: () => ctl.playQueue(list, i),
+    ),
+  );
+}
+
+Widget _playlistRow(BuildContext context, List<Playlist> list, double width) => HList(
+      height: width + 58,
+      count: list.length,
+      itemBuilder: (_, i) => PosterCard(
+        imageUrl: list[i].cover,
+        title: list[i].name,
+        subtitle: list[i].description,
+        width: width,
+        onTap: () => openCollection(context, list[i]),
+      ),
+    );
+
+Widget _rows(BuildContext context, WidgetRef ref, List<FeedRow> rows) {
+  final w = _cardWidth(context);
+  return Column(children: [
+    for (final r in rows) ...[
+      SectionHeader(r.title),
+      if (r.songs.isNotEmpty) _songRow(ref, r.songs, w),
+      if (r.playlists.isNotEmpty) _playlistRow(context, r.playlists, w),
+    ],
+  ]);
+}
+
+const _loadingBox = SizedBox(height: 160, child: LoadingState());
+
+class _DefaultFeed extends ConsumerWidget {
+  const _DefaultFeed();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final w = (MediaQuery.sizeOf(context).width * 0.4).clamp(130.0, 200.0).toDouble();
-    final ctl = ref.read(playerProvider.notifier);
-    final trending = songs.take(12).toList();
+    final quick = ref.watch(quickPicksProvider);
+    final rows = ref.watch(feedRowsProvider);
     final hist = ref.watch(playerProvider.select((s) => s.history));
+    final w = _cardWidth(context);
+    final top = ref.watch(topKeyProvider).split('|').where((e) => e.isNotEmpty).toList();
 
-    Widget songRow(List<Song> list, double width) => HList(
-          height: width + 58,
-          count: list.length,
-          itemBuilder: (_, i) => PosterCard(
-            imageUrl: list[i].artwork,
-            title: list[i].title,
-            subtitle: list[i].artistName,
-            width: width,
-            onTap: () => ctl.playQueue(list, i),
-          ),
-        );
+    void retry() {
+      ref.invalidate(songsQueryProvider);
+      ref.invalidate(trendingProvider);
+      ref.invalidate(quickPicksProvider);
+      ref.invalidate(feedRowsProvider);
+    }
 
     return SliverList(
       delegate: SliverChildListDelegate([
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: _Hero(onPlay: () => ctl.playQueue(trending, 0)),
-        ),
-        const SectionHeader('Trending Now'),
-        songRow(trending, w),
-        const SectionHeader('Made For You'),
-        HList(
-          height: w + 58,
-          count: playlists.length,
-          itemBuilder: (_, i) => PosterCard(
-            imageUrl: playlists[i].cover,
-            title: playlists[i].name,
-            subtitle: playlists[i].description,
-            width: w,
-            onTap: () => context.push('/playlist/${playlists[i].id}'),
-          ),
+        const SectionHeader('Pick Quickly'),
+        quick.when(
+          data: (l) => l.isEmpty ? ErrorState(onRetry: retry) : _QuickPicks(songs: l),
+          loading: () => _loadingBox,
+          error: (_, __) => ErrorState(onRetry: retry),
         ),
         if (hist.isNotEmpty) ...[
-          const SectionHeader('Recently Played'),
-          songRow(hist, w * .75),
+          const SectionHeader('Listen again'),
+          _songRow(ref, hist, w * .8),
         ],
-        const SectionHeader('Popular Artists'),
-        _wait(
-          artists,
-          (list) => HList(
+        if (top.isNotEmpty) ...[
+          const SectionHeader('Your artists'),
+          HList(
             height: w * .7 + 50,
-            count: list.length,
+            count: top.length,
             itemBuilder: (_, i) => PosterCard(
-              imageUrl: list[i].image,
-              image: ArtistImage(list[i].name, fallback: list[i].image, size: w * .7),
-              title: list[i].name,
+              imageUrl: '',
+              image: ArtistImage(top[i], size: w * .7),
+              title: top[i],
               subtitle: 'Artist',
               width: w * .7,
               circle: true,
-              onTap: () => context.push('/artist/${Uri.encodeComponent(list[i].id)}'),
+              onTap: () => context.push('/artist/${Uri.encodeComponent(top[i])}'),
             ),
           ),
-        ),
-        const SectionHeader('New Releases'),
-        _wait(fresh, (list) => songRow(list, w)),
-        const SectionHeader('Recommended For You'),
-        _wait(
-          rec,
-          (list) => Column(children: [
-            for (var i = 0; i < list.length && i < 10; i++)
-              SongTile(song: list[i], onTap: () => ctl.playQueue(list, i)),
-          ]),
+        ],
+        rows.when(
+          data: (r) => _rows(context, ref, r),
+          loading: () => _loadingBox,
+          error: (_, __) => const SizedBox.shrink(),
         ),
         const SizedBox(height: 130),
       ]),
@@ -201,35 +171,64 @@ class _Content extends ConsumerWidget {
   }
 }
 
-class _Hero extends StatelessWidget {
-  const _Hero({required this.onPlay});
-  final VoidCallback onPlay;
+class _MoodFeed extends ConsumerWidget {
+  const _MoodFeed({required this.mood});
+  final String mood;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final feed = ref.watch(moodFeedProvider(mood));
+    return SliverList(
+      delegate: SliverChildListDelegate([
+        feed.when(
+          data: (rows) => rows.isEmpty
+              ? const SizedBox(
+                  height: 300,
+                  child: EmptyState(icon: Icons.music_off_rounded, title: 'Nothing here yet', message: 'Try another mood.'),
+                )
+              : _rows(context, ref, rows),
+          loading: () => const SizedBox(height: 300, child: LoadingState()),
+          error: (_, __) => SizedBox(height: 300, child: ErrorState(onRetry: () => ref.invalidate(moodFeedProvider(mood)))),
+        ),
+        const SizedBox(height: 130),
+      ]),
+    );
+  }
+}
+
+/// YouTube Music style: columns of 4 songs, swipe sideways for more.
+class _QuickPicks extends ConsumerStatefulWidget {
+  const _QuickPicks({required this.songs});
+  final List<Song> songs;
+  @override
+  ConsumerState<_QuickPicks> createState() => _QuickPicksState();
+}
+
+class _QuickPicksState extends ConsumerState<_QuickPicks> {
+  final _pc = PageController(viewportFraction: .92);
+
+  @override
+  void dispose() {
+    _pc.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 170,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(gradient: AppColors.gradient, borderRadius: BorderRadius.circular(24)),
-      child: Stack(children: [
-        Positioned(
-          right: -24,
-          top: -8,
-          child: Icon(Icons.graphic_eq_rounded, size: 190, color: Colors.white.withAlpha(35)),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text('Feel\nThe Music', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800, height: 1.1)),
-            FilledButton.icon(
-              onPressed: onPlay,
-              style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: const Color(0xFF4C1D95)),
-              icon: const Icon(Icons.play_arrow_rounded),
-              label: const Text('Play now'),
-            ),
-          ]),
-        ),
-      ]),
+    final ctl = ref.read(playerProvider.notifier);
+    final songs = widget.songs;
+    final pages = (songs.length / 4).ceil();
+    return SizedBox(
+      height: 4 * 72.0 + 8,
+      child: PageView.builder(
+        controller: _pc,
+        padEnds: false,
+        itemCount: pages,
+        itemBuilder: (_, p) => Column(children: [
+          for (var i = p * 4; i < p * 4 + 4 && i < songs.length; i++)
+            SongTile(song: songs[i], onTap: () => ctl.playQueue(songs, i)),
+        ]),
+      ),
     );
   }
 }

@@ -50,7 +50,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final Widget body = _q.isNotEmpty ? _results() : (_typed.isNotEmpty ? _suggestions() : _browse());
+    final Widget body = _q.isNotEmpty ? _Results(q: _q) : (_typed.isNotEmpty ? _suggestions() : _browse());
     return SafeArea(
       bottom: false,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -181,62 +181,165 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       ],
     ]);
   }
+}
 
-  Widget _results() {
-    final ctl = ref.read(playerProvider.notifier);
-    return AsyncView<SearchResults>(
-      value: ref.watch(searchProvider(_q)),
-      onRetry: () => ref.invalidate(searchProvider(_q)),
-      builder: (r) => DefaultTabController(
-        length: 3,
-        child: Column(children: [
-          const TabBar(
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            indicatorColor: AppColors.primary,
-            labelColor: Colors.white,
-            unselectedLabelColor: AppColors.textSecondary,
-            dividerColor: Colors.transparent,
-            tabs: [Tab(text: 'Songs'), Tab(text: 'Artists'), Tab(text: 'Playlists')],
-          ),
-          Expanded(
-            child: TabBarView(children: [
-              _list(r.songs.length, 'No songs found', (i) => SongTile(song: r.songs[i], onTap: () => ctl.playQueue(r.songs, i))),
-              _list(
-                r.artists.length,
-                'No artists found',
-                (i) => ListTile(
-                  leading: ArtistImage(r.artists[i].name, fallback: r.artists[i].image, size: 52),
-                  title: Text(r.artists[i].name),
-                  subtitle: const Text('Artist', style: TextStyle(color: AppColors.textSecondary)),
-                  onTap: () => context.push('/artist/${Uri.encodeComponent(r.artists[i].id)}'),
-                ),
-              ),
-              _list(
-                r.playlists.length,
-                'No playlists found',
-                (i) => ListTile(
-                  leading: Artwork(r.playlists[i].cover, size: 52, radius: 10),
-                  title: Text(r.playlists[i].name),
-                  subtitle: Text(r.playlists[i].description, style: const TextStyle(color: AppColors.textSecondary)),
-                  onTap: () => context.push('/playlist/${r.playlists[i].id}'),
-                ),
-              ),
-            ]),
-          ),
-        ]),
-      ),
+/// Tabs: All, Songs, Videos, Albums, Artists, Playlists, Podcasts. Each tab loads its own real data.
+class _Results extends StatelessWidget {
+  const _Results({required this.q});
+  final String q;
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 7,
+      child: Column(children: [
+        const TabBar(
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          indicatorColor: AppColors.primary,
+          labelColor: Colors.white,
+          unselectedLabelColor: AppColors.textSecondary,
+          dividerColor: Colors.transparent,
+          tabs: [
+            Tab(text: 'All'), Tab(text: 'Songs'), Tab(text: 'Videos'), Tab(text: 'Albums'),
+            Tab(text: 'Artists'), Tab(text: 'Playlists'), Tab(text: 'Podcasts'),
+          ],
+        ),
+        Expanded(
+          child: TabBarView(children: [
+            _AllTab(q: q),
+            _SongsTab(k: (q: q, f: 'music_songs')),
+            _SongsTab(k: (q: q, f: 'music_videos')),
+            _PlaylistsTab(k: (q: q, f: 'music_albums'), kind: 'albums'),
+            _ArtistsTab(q: q),
+            _PlaylistsTab(k: (q: q, f: 'music_playlists'), kind: 'playlists'),
+            _PlaylistsTab(k: (q: '$q podcast', f: 'playlists'), kind: 'podcasts'),
+          ]),
+        ),
+      ]),
     );
   }
+}
 
-  Widget _list(int count, String empty, Widget Function(int) item) {
-    if (count == 0) {
-      return EmptyState(icon: Icons.search_off_rounded, title: empty, message: 'Try a different search.');
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 130),
-      itemCount: count,
-      itemBuilder: (_, i) => item(i),
+Widget _empty(String what) =>
+    EmptyState(icon: Icons.search_off_rounded, title: 'No $what found', message: 'Try a different search.');
+
+Widget _songTiles(WidgetRef ref, List<Song> l, {int? max}) {
+  final ctl = ref.read(playerProvider.notifier);
+  final n = max == null || l.length < max ? l.length : max;
+  return Column(children: [for (var i = 0; i < n; i++) SongTile(song: l[i], onTap: () => ctl.playQueue(l, i))]);
+}
+
+Widget _playlistTile(BuildContext context, Playlist p) => ListTile(
+      leading: Artwork(p.cover, size: 56, radius: 10),
+      title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text(p.description, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: AppColors.textSecondary)),
+      onTap: () => openCollection(context, p),
     );
+
+Widget _artistTile(BuildContext context, Artist a) => ListTile(
+      leading: ArtistImage(a.name, fallback: a.image, size: 56),
+      title: Text(a.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: const Text('Artist', style: TextStyle(color: AppColors.textSecondary)),
+      onTap: () => context.push('/artist/${Uri.encodeComponent(a.id)}'),
+    );
+
+class _SongsTab extends ConsumerWidget {
+  const _SongsTab({required this.k});
+  final QueryFilter k;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => AsyncView<List<Song>>(
+        value: ref.watch(songsFilterProvider(k)),
+        onRetry: () => ref.invalidate(songsFilterProvider(k)),
+        builder: (l) => l.isEmpty
+            ? _empty('results')
+            : ListView(padding: const EdgeInsets.only(bottom: 130), children: [_songTiles(ref, l)]),
+      );
+}
+
+class _PlaylistsTab extends ConsumerWidget {
+  const _PlaylistsTab({required this.k, required this.kind});
+  final QueryFilter k;
+  final String kind;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => AsyncView<List<Playlist>>(
+        value: ref.watch(playlistsFilterProvider(k)),
+        onRetry: () => ref.invalidate(playlistsFilterProvider(k)),
+        builder: (l) => l.isEmpty
+            ? _empty(kind)
+            : ListView(padding: const EdgeInsets.only(bottom: 130), children: [for (final p in l) _playlistTile(context, p)]),
+      );
+}
+
+class _ArtistsTab extends ConsumerWidget {
+  const _ArtistsTab({required this.q});
+  final String q;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => AsyncView<List<Artist>>(
+        value: ref.watch(artistsSearchProvider(q)),
+        onRetry: () => ref.invalidate(artistsSearchProvider(q)),
+        builder: (l) => l.isEmpty
+            ? _empty('artists')
+            : ListView(padding: const EdgeInsets.only(bottom: 130), children: [for (final a in l) _artistTile(context, a)]),
+      );
+}
+
+class _AllTab extends ConsumerWidget {
+  const _AllTab({required this.q});
+  final String q;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final songs = ref.watch(songsFilterProvider((q: q, f: 'music_songs')));
+    final artists = ref.watch(artistsSearchProvider(q));
+    final albums = ref.watch(playlistsFilterProvider((q: q, f: 'music_albums')));
+    final lists = ref.watch(playlistsFilterProvider((q: q, f: 'music_playlists')));
+    if (songs.isLoading && !songs.hasValue) return const LoadingState();
+    if (songs.hasError) return ErrorState(onRetry: () => ref.invalidate(songsFilterProvider((q: q, f: 'music_songs'))));
+    final w = 130.0;
+    return ListView(padding: const EdgeInsets.only(bottom: 130), children: [
+      if ((songs.valueOrNull ?? []).isNotEmpty) ...[
+        const SectionHeader('Songs'),
+        _songTiles(ref, songs.requireValue, max: 5),
+      ],
+      if ((artists.valueOrNull ?? []).isNotEmpty) ...[
+        const SectionHeader('Artists'),
+        HList(
+          height: 120 + 44,
+          count: artists.requireValue.length.clamp(0, 8),
+          itemBuilder: (_, i) {
+            final a = artists.requireValue[i];
+            return PosterCard(
+              imageUrl: a.image,
+              image: ArtistImage(a.name, fallback: a.image, size: 110),
+              title: a.name,
+              subtitle: 'Artist',
+              width: 110,
+              circle: true,
+              onTap: () => context.push('/artist/${Uri.encodeComponent(a.id)}'),
+            );
+          },
+        ),
+      ],
+      if ((albums.valueOrNull ?? []).isNotEmpty) ...[
+        const SectionHeader('Albums'),
+        HList(
+          height: w + 58,
+          count: albums.requireValue.length.clamp(0, 8),
+          itemBuilder: (_, i) => PosterCard(
+            imageUrl: albums.requireValue[i].cover,
+            title: albums.requireValue[i].name,
+            subtitle: albums.requireValue[i].description,
+            width: w,
+            onTap: () => openCollection(context, albums.requireValue[i]),
+          ),
+        ),
+      ],
+      if ((lists.valueOrNull ?? []).isNotEmpty) ...[
+        const SectionHeader('Playlists'),
+        for (final p in lists.requireValue.take(4)) _playlistTile(context, p),
+      ],
+    ]);
   }
 }
