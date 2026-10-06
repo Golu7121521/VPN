@@ -377,11 +377,10 @@ class _DownloadButton extends ConsumerWidget {
                 final rewardedAd = await startAppSdk.loadRewardedVideoAd();
 
                 if (rewardedAd != null) {
-                  rewardedAd.onVideoCompleted.listen((_) {
-                    ref.read(downloadsProvider.notifier).download(song);
-                    messenger.showSnackBar(const SnackBar(content: Text('Downloading in best quality...')));
-                  });
+                  // Await the completion of the ad show, then start the download
                   await rewardedAd.show();
+                  ref.read(downloadsProvider.notifier).download(song);
+                  messenger.showSnackBar(const SnackBar(content: Text('Downloading in best quality...')));
                 } else {
                   // Fallback: Agar ad load nahi ho pata
                   ref.read(downloadsProvider.notifier).download(song);
