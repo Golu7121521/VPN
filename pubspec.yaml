@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  startapp_sdk: ^3.0.2
   flutter_riverpod: ^2.5.1
   go_router: ^14.2.0
   just_audio: ">=0.9.40 <0.11.0"

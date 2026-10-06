@@ -27,7 +27,7 @@ jobs:
           flutter create --platforms=android --org com --project-name roxyfy .
           rm -f test/widget_test.dart
 
-      - name: Patch Android (permissions, audio service, NewPipe)
+      - name: Patch Android (permissions, audio service, NewPipe, Start.io)
         run: |
           python3 - <<'PY'
           import re, glob, os, shutil
@@ -45,6 +45,7 @@ jobs:
             <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver" android:exported="true" tools:ignore="Instantiatable">
               <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON"/></intent-filter>
             </receiver>
+            <meta-data android:name="com.startapp.sdk.APPLICATION_ID" android:value="YOUR_STARTAPP_APP_ID"/>
           '''
           s = s.replace('</application>', svc + '  </application>', 1)
           share = '''      <intent-filter>

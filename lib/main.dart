@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:startapp_sdk/startapp.dart';
 
 import 'core/router.dart';
 import 'core/theme.dart';
@@ -11,6 +12,11 @@ import 'state/providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Start.io SDK and enable test ads
+  final startAppSdk = StartAppSdk();
+  await startAppSdk.setTestAdsEnabled(true);
+
   audioHandler = await AudioService.init(
     builder: () => RoxyAudioHandler(),
     config: const AudioServiceConfig(

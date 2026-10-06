@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
+import 'package:startapp_sdk/startapp.dart';
 
 import '../core/theme.dart';
 import '../core/widgets.dart';
@@ -367,9 +368,30 @@ class _DownloadButton extends ConsumerWidget {
           color: done ? AppColors.primary : AppColors.textSecondary),
       onPressed: done
           ? () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Already downloaded')))
-          : () {
-              ref.read(downloadsProvider.notifier).download(song);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Downloading in best quality...')));
+          : () async {
+              final messenger = ScaffoldMessenger.of(context);
+              messenger.showSnackBar(const SnackBar(content: Text('Loading Ad...')));
+
+              try {
+                final startAppSdk = StartAppSdk();
+                final rewardedAd = await startAppSdk.loadRewardedVideoAd();
+
+                if (rewardedAd != null) {
+                  rewardedAd.onVideoCompleted.listen((_) {
+                    ref.read(downloadsProvider.notifier).download(song);
+                    messenger.showSnackBar(const SnackBar(content: Text('Downloading in best quality...')));
+                  });
+                  await rewardedAd.show();
+                } else {
+                  // Fallback: Agar ad load nahi ho pata
+                  ref.read(downloadsProvider.notifier).download(song);
+                  messenger.showSnackBar(const SnackBar(content: Text('Downloading in best quality...')));
+                }
+              } catch (e) {
+                // Fallback: Kisi bhi error ke case mein download shuru kar dein
+                ref.read(downloadsProvider.notifier).download(song);
+                messenger.showSnackBar(const SnackBar(content: Text('Downloading in best quality...')));
+              }
             },
     );
   }
