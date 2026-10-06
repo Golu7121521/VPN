@@ -21,12 +21,13 @@ jobs:
           channel: stable
           cache: true
 
+      # Android/iOS folders are NOT stored in the repo; they are generated here.
       - name: Generate Android platform files
         run: |
           flutter create --platforms=android --org com --project-name roxyfy .
           rm -f test/widget_test.dart
 
-      - name: Patch Android (permissions, audio service, NewPipe, Start.io SDK version fix)
+      - name: Patch Android (permissions, audio service, NewPipe, Start.io)
         run: |
           python3 - <<'PY'
           import re, glob, os, shutil
@@ -44,6 +45,7 @@ jobs:
             <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver" android:exported="true" tools:ignore="Instantiatable">
               <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON"/></intent-filter>
             </receiver>
+            <!-- Start.io SDK App ID -->
             <meta-data android:name="com.startapp.sdk.APPLICATION_ID" android:value="YOUR_STARTAPP_APP_ID"/>
           '''
           s = s.replace('</application>', svc + '  </application>', 1)
