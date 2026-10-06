@@ -21,7 +21,6 @@ jobs:
           channel: stable
           cache: true
 
-      # Android/iOS folders are NOT stored in the repo; they are generated here.
       - name: Generate Android platform files
         run: |
           flutter create --platforms=android --org com --project-name roxyfy .
@@ -45,7 +44,6 @@ jobs:
             <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver" android:exported="true" tools:ignore="Instantiatable">
               <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON"/></intent-filter>
             </receiver>
-            <!-- Start.io SDK App ID -->
             <meta-data android:name="com.startapp.sdk.APPLICATION_ID" android:value="YOUR_STARTAPP_APP_ID"/>
           '''
           s = s.replace('</application>', svc + '  </application>', 1)
@@ -75,14 +73,14 @@ jobs:
           # Force older Start.io SDK version compatible with compileSdk 36
           build_gradle = open('android/app/build.gradle.kts').read()
           build_gradle += '''
-dependencies {
-    constraints {
-        implementation("com.startapp:inapp-sdk:5.1.0") {
-            because("Version 5.3+ requires compileSdk 37, which is not supported by our current build setup.")
-        }
-    }
-}
-'''
+          dependencies {
+              constraints {
+                  implementation("com.startapp:inapp-sdk:5.1.0") {
+                      because("Version 5.3+ requires compileSdk 37, which is not supported by our current build setup.")
+                  }
+              }
+          }
+          '''
           open('android/app/build.gradle.kts', 'w').write(build_gradle)
           PY
 
