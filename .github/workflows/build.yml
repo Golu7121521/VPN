@@ -51,7 +51,7 @@ jobs:
           cd android-app
           gradle wrapper --gradle-version 8.4
 
-      - name: Generate App build.gradle.kts (Fixed Java Target)
+      - name: Generate App build.gradle.kts
         run: |
           cat << 'EOF' > android-app/app/build.gradle.kts
           plugins {
@@ -131,7 +131,7 @@ jobs:
           </resources>
           EOF
 
-      - name: Generate MainActivity.kt (Fixed Imports)
+      - name: Generate MainActivity.kt (Fixed Kotlin Null-Safety & Types)
         run: |
           cat << 'EOF' > android-app/app/src/main/java/com/downloader/app/MainActivity.kt
           package com.downloader.app
@@ -152,8 +152,6 @@ jobs:
           import androidx.compose.foundation.shape.RoundedCornerShape
           import androidx.compose.material3.*
           import androidx.compose.runtime.*
-          import androidx.compose.runtime.getValue
-          import androidx.compose.runtime.setValue
           import androidx.compose.ui.Alignment
           import androidx.compose.ui.Modifier
           import androidx.compose.ui.draw.clip
@@ -251,14 +249,7 @@ jobs:
                       value = url,
                       onValueChange = { url = it },
                       placeholder = { Text("Paste Reel Link...") },
-                      modifier = Modifier.fillMaxWidth(),
-                      colors = OutlinedTextFieldDefaults.colors(
-                          focusedContainerColor = Color(0xFF1E293B), 
-                          unfocusedContainerColor = Color(0xFF1E293B),
-                          focusedBorderColor = Color(0xFF38BDF8),
-                          unfocusedTextColor = Color.White,
-                          focusedTextColor = Color.White
-                      )
+                      modifier = Modifier.fillMaxWidth()
                   )
                   
                   Spacer(modifier = Modifier.height(12.dp))
@@ -296,9 +287,16 @@ jobs:
               downloadManager.enqueue(request)
               
               val gson = Gson()
-              val historyJson = prefs.getString("history", "[]")
+              // Ensure we fallback to "[]" so it's never null
+              val historyJson = prefs.getString("history", "[]") ?: "[]"
               val type = object : TypeToken<MutableList<HistoryItem>>() {}.type
-              val historyList: MutableList<HistoryItem> = gson.fromJson(historyJson, type)
+              
+              // Safe JSON parsing
+              val historyList: MutableList<HistoryItem> = try {
+                  gson.fromJson(historyJson, type) ?: mutableListOf()
+              } catch (e: Exception) {
+                  mutableListOf()
+              }
               
               val date = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date())
               historyList.add(0, HistoryItem(System.currentTimeMillis().toString(), url, date))
@@ -311,9 +309,14 @@ jobs:
               val gson = Gson()
               
               var history by remember { 
-                  val json = prefs.getString("history", "[]")
+                  val json = prefs.getString("history", "[]") ?: "[]"
                   val type = object : TypeToken<List<HistoryItem>>() {}.type
-                  mutableStateOf(gson.fromJson<List<HistoryItem>>(json, type))
+                  val parsedList: List<HistoryItem> = try {
+                      gson.fromJson(json, type) ?: emptyList()
+                  } catch (e: Exception) {
+                      emptyList()
+                  }
+                  mutableStateOf(parsedList)
               }
 
               LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
