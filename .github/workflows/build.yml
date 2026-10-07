@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -80,12 +80,10 @@ jobs:
             }
 
             void _setupIntentListener() {
-              // App background se aane par
               _intentDataStreamSubscription = ReceiveSharingIntent.getTextStream().listen((String value) {
                 _handleSharedText(value);
               }, onError: (err) {});
 
-              // App pehli baar open hone par
               ReceiveSharingIntent.getInitialText().then((String? value) {
                 if (value != null) _handleSharedText(value);
               });
@@ -137,13 +135,10 @@ jobs:
               });
 
               try {
-                // Request Permission
                 await Gal.requestAccess();
-
                 final tempDir = await getTemporaryDirectory();
                 final savePath = "${tempDir.path}/Reel_${DateTime.now().millisecondsSinceEpoch}.mp4";
 
-                // Server API call (Bina JSON ke direct file download)
                 final apiUrl = "https://allinonedownloader-docker.onrender.com/download?url=${Uri.encodeComponent(url)}";
                 
                 final dio = Dio();
@@ -161,10 +156,8 @@ jobs:
 
                 setState(() => _statusText = "Gallery mein save ho raha hai...");
                 
-                // Save to Gallery
                 await Gal.putVideo(savePath);
                 
-                // Initialize Video Player for Preview
                 _videoController = VideoPlayerController.file(File(savePath))
                   ..initialize().then((_) {
                     setState(() {});
@@ -216,12 +209,10 @@ jobs:
                       Expanded(
                         child: TabBarView(
                           children: [
-                            // --- DOWNLOAD TAB ---
                             SingleChildScrollView(
                               padding: const EdgeInsets.all(16.0),
                               child: Column(
                                 children: [
-                                  // Video Preview (9:16 Ratio)
                                   Container(
                                     width: MediaQuery.of(context).size.width * 0.7,
                                     decoration: BoxDecoration(
@@ -275,7 +266,6 @@ jobs:
                                 ],
                               ),
                             ),
-                            // --- HISTORY TAB ---
                             ListView.builder(
                               itemCount: _history.length,
                               padding: const EdgeInsets.all(12),
@@ -314,6 +304,7 @@ jobs:
       - name: Update Android Manifest for Share Intent & Permissions
         run: |
           cd downloader_app
+          
           # Add Permissions
           sed -i '/<application/i \
               <uses-permission android:name="android.permission.INTERNET" />\
@@ -328,8 +319,12 @@ jobs:
                           <data android:mimeType="text/plain" />\
                       </intent-filter>' android/app/src/main/AndroidManifest.xml
                       
-          # Update minSDK for plugins
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' android/app/build.gradle
+          # Update minSDK for plugins (Check for Kotlin DSL and Groovy DSL)
+          if [ -f "android/app/build.gradle.kts" ]; then
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/' android/app/build.gradle.kts
+          elif [ -f "android/app/build.gradle" ]; then
+            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' android/app/build.gradle
+          fi
 
       - name: Build Android APK
         run: |
