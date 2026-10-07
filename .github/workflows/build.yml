@@ -21,7 +21,7 @@ jobs:
           channel: stable
           cache: true
 
-      # Android/iOS folders are NOT stored in the repo; they are generated here.
+      # belloAndroid/iOS folders are NOT stored in the repo; they are generated here.
       - name: Generate Android platform files
         run: |
           flutter create --platforms=android --org com --project-name roxyfy .
