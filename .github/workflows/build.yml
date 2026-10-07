@@ -1,7 +1,7 @@
 name: Build Cloudstream App
 
 on:
-  workflow_dispatch: # Yeh aapko GitHub se manual 'Run workflow' ka button dega
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,7 +13,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 'recloudstream/cloudstream'
-          fetch-depth: 1
+          fetch-depth: 0
+          submodules: recursive # Yeh sabse zaroori hai missing files ke liye
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -22,11 +23,14 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
+      - name: Setup Android Environment
+        uses: android-actions/setup-android@v3
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
