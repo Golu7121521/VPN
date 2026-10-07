@@ -1,4 +1,4 @@
-name: Build Reel Downloader APK
+name: Build Native Android Compose APK
 
 on:
   push:
@@ -10,329 +10,348 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
-      - name: Create Flutter Project & Add Dependencies
+      - name: Create Project Structure
         run: |
-          flutter create downloader_app
-          cd downloader_app
-          flutter pub add dio video_player shared_preferences gal path_provider receive_sharing_intent
+          mkdir -p android-app/app/src/main/java/com/downloader/app
+          mkdir -p android-app/app/src/main/res/values
+          mkdir -p android-app/gradle/wrapper
 
-      - name: Generate Flutter UI & Logic Code (main.dart)
+      - name: Generate Gradle Wrapper
         run: |
-          cd downloader_app
-          cat << 'EOF' > lib/main.dart
-          import 'dart:async';
-          import 'dart:convert';
-          import 'dart:io';
-          import 'package:flutter/material.dart';
-          import 'package:receive_sharing_intent/receive_sharing_intent.dart';
-          import 'package:dio/dio.dart';
-          import 'package:gal/gal.dart';
-          import 'package:video_player/video_player.dart';
-          import 'package:shared_preferences/shared_preferences.dart';
-          import 'package:path_provider/path_provider.dart';
+          cd android-app
+          gradle wrapper --gradle-version 8.4
 
-          void main() => runApp(const MediaDownloaderApp());
-
-          class MediaDownloaderApp extends StatelessWidget {
-            const MediaDownloaderApp({super.key});
-            @override
-            Widget build(BuildContext context) {
-              return MaterialApp(
-                title: 'Reel Downloader',
-                theme: ThemeData.dark().copyWith(
-                  scaffoldBackgroundColor: const Color(0xFF0F172A),
-                  primaryColor: Colors.blueAccent,
-                ),
-                home: const DownloaderScreen(),
-              );
-            }
+      - name: Generate settings.gradle.kts
+        run: |
+          cat << 'EOF' > android-app/settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
           }
-
-          class DownloaderScreen extends StatefulWidget {
-            const DownloaderScreen({super.key});
-            @override
-            State<DownloaderScreen> createState() => _DownloaderScreenState();
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
           }
+          rootProject.name = "ReelDownloader"
+          include(":app")
+          EOF
 
-          class _DownloaderScreenState extends State<DownloaderScreen> {
-            final TextEditingController _urlController = TextEditingController();
-            bool _isDownloading = false;
-            String _statusText = "";
-            VideoPlayerController? _videoController;
-            StreamSubscription? _intentDataStreamSubscription;
-            List<Map<String, String>> _history = [];
-
-            @override
-            void initState() {
-              super.initState();
-              _loadHistory();
-              _setupIntentListener();
-            }
-
-            void _setupIntentListener() {
-              _intentDataStreamSubscription = ReceiveSharingIntent.getTextStream().listen((String value) {
-                _handleSharedText(value);
-              }, onError: (err) {});
-
-              ReceiveSharingIntent.getInitialText().then((String? value) {
-                if (value != null) _handleSharedText(value);
-              });
-            }
-
-            void _handleSharedText(String text) {
-              if (text.contains("http")) {
-                RegExp regExp = RegExp(r"(https?:\/\/[^\s]+)");
-                final match = regExp.firstMatch(text);
-                if (match != null) {
-                  _urlController.text = match.group(0)!;
-                  _startDownload();
-                }
-              }
-            }
-
-            Future<void> _loadHistory() async {
-              final prefs = await SharedPreferences.getInstance();
-              final historyJson = prefs.getString('download_history');
-              if (historyJson != null) {
-                setState(() {
-                  _history = List<Map<String, String>>.from(json.decode(historyJson).map((x) => Map<String, String>.from(x)));
-                });
-              }
-            }
-
-            Future<void> _saveToHistory(String url, String localPath) async {
-              final prefs = await SharedPreferences.getInstance();
-              _history.insert(0, {
-                "url": url,
-                "date": DateTime.now().toString().substring(0, 16),
-                "path": localPath,
-              });
-              await prefs.setString('download_history', json.encode(_history));
-              setState(() {});
-            }
-
-            Future<void> _startDownload() async {
-              final url = _urlController.text.trim();
-              if (url.isEmpty) return;
-
-              setState(() {
-                _isDownloading = true;
-                _statusText = "Server se connect kar rahe hain...";
-                if (_videoController != null) {
-                  _videoController!.dispose();
-                  _videoController = null;
-                }
-              });
-
-              try {
-                await Gal.requestAccess();
-                final tempDir = await getTemporaryDirectory();
-                final savePath = "${tempDir.path}/Reel_${DateTime.now().millisecondsSinceEpoch}.mp4";
-
-                final apiUrl = "https://allinonedownloader-docker.onrender.com/download?url=${Uri.encodeComponent(url)}";
-                
-                final dio = Dio();
-                await dio.download(
-                  apiUrl,
-                  savePath,
-                  onReceiveProgress: (rec, total) {
-                    if (total != -1) {
-                      setState(() {
-                        _statusText = "Downloading: ((rec / total) * 100).toStringAsFixed(0)%";
-                      });
-                    }
-                  },
-                );
-
-                setState(() => _statusText = "Gallery mein save ho raha hai...");
-                
-                await Gal.putVideo(savePath);
-                
-                _videoController = VideoPlayerController.file(File(savePath))
-                  ..initialize().then((_) {
-                    setState(() {});
-                    _videoController!.setLooping(true);
-                    _videoController!.play();
-                  });
-
-                await _saveToHistory(url, savePath);
-                setState(() => _statusText = "Successfully Downloaded!");
-
-              } catch (e) {
-                setState(() => _statusText = "Error: Video private ho sakti hai ya invalid link.");
-              } finally {
-                setState(() => _isDownloading = false);
-              }
-            }
-
-            void _deleteHistory(int index) async {
-              _history.removeAt(index);
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('download_history', json.encode(_history));
-              setState(() {});
-            }
-
-            @override
-            void dispose() {
-              _intentDataStreamSubscription?.cancel();
-              _videoController?.dispose();
-              _urlController.dispose();
-              super.dispose();
-            }
-
-            @override
-            Widget build(BuildContext context) {
-              return Scaffold(
-                appBar: AppBar(
-                  title: const Text('All Media Downloader', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-                  backgroundColor: const Color(0xFF0F172A),
-                  elevation: 0,
-                ),
-                body: DefaultTabController(
-                  length: 2,
-                  child: Column(
-                    children: [
-                      const TabBar(
-                        indicatorColor: Colors.blueAccent,
-                        tabs: [Tab(icon: Icon(Icons.download), text: "Download"), Tab(icon: Icon(Icons.history), text: "History")],
-                      ),
-                      Expanded(
-                        child: TabBarView(
-                          children: [
-                            SingleChildScrollView(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Column(
-                                children: [
-                                  Container(
-                                    width: MediaQuery.of(context).size.width * 0.7,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(16),
-                                      boxShadow: [BoxShadow(color: Colors.blueAccent.withOpacity(0.3), blurRadius: 20)],
-                                    ),
-                                    child: AspectRatio(
-                                      aspectRatio: 9 / 16,
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(16),
-                                        child: _videoController != null && _videoController!.value.isInitialized
-                                            ? VideoPlayer(_videoController!)
-                                            : Container(
-                                                color: Colors.black87,
-                                                child: const Center(
-                                                  child: Icon(Icons.video_library, size: 60, color: Colors.white24),
-                                                ),
-                                              ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  TextField(
-                                    controller: _urlController,
-                                    decoration: InputDecoration(
-                                      hintText: 'Paste Reel/Post link here...',
-                                      filled: true,
-                                      fillColor: const Color(0xFF1E293B),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                                      prefixIcon: const Icon(Icons.link, color: Colors.blueAccent),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    height: 55,
-                                    child: ElevatedButton.icon(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.blueAccent,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                      ),
-                                      onPressed: _isDownloading ? null : _startDownload,
-                                      icon: _isDownloading
-                                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                                          : const Icon(Icons.download, color: Colors.white),
-                                      label: Text(_isDownloading ? 'Processing...' : 'Download Reel', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(_statusText, style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
-                                ],
-                              ),
-                            ),
-                            ListView.builder(
-                              itemCount: _history.length,
-                              padding: const EdgeInsets.all(12),
-                              itemBuilder: (context, index) {
-                                final item = _history[index];
-                                return Card(
-                                  color: const Color(0xFF1E293B),
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  child: ListTile(
-                                    leading: Container(
-                                      width: 40, height: 40,
-                                      decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
-                                      child: const Icon(Icons.check_circle, color: Colors.blueAccent),
-                                    ),
-                                    title: Text("Downloaded on ${item['date']}", style: const TextStyle(fontSize: 13, color: Colors.white)),
-                                    subtitle: Text(item['url'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white54)),
-                                    trailing: IconButton(
-                                      icon: const Icon(Icons.delete, color: Colors.redAccent),
-                                      onPressed: () => _deleteHistory(index),
-                                    ),
-                                  ),
-                                );
-                              },
-                            )
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
+      - name: Generate Root build.gradle.kts
+        run: |
+          cat << 'EOF' > android-app/build.gradle.kts
+          plugins {
+              id("com.android.application") version "8.1.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.10" apply false
           }
           EOF
 
-      - name: Update Android Manifest for Share Intent & Permissions
+      - name: Generate App build.gradle.kts
         run: |
-          cd downloader_app
-          
-          # Add Permissions
-          sed -i '/<application/i \
-              <uses-permission android:name="android.permission.INTERNET" />\
-              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\
-              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
-          
-          # Add Intent Filter for sharing
-          sed -i '/<\/activity>/i \
-                      <intent-filter>\
-                          <action android:name="android.intent.action.SEND" />\
-                          <category android:name="android.intent.category.DEFAULT" />\
-                          <data android:mimeType="text/plain" />\
-                      </intent-filter>' android/app/src/main/AndroidManifest.xml
-                      
-          # Update minSDK for plugins (Check for Kotlin DSL and Groovy DSL)
-          if [ -f "android/app/build.gradle.kts" ]; then
-            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/' android/app/build.gradle.kts
-          elif [ -f "android/app/build.gradle" ]; then
-            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' android/app/build.gradle
-          fi
+          cat << 'EOF' > android-app/app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.downloader.app"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.downloader.app"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              buildFeatures { compose = true }
+              composeOptions { kotlinCompilerExtensionVersion = "1.5.3" }
+          }
+          dependencies {
+              implementation("androidx.core:core-ktx:1.12.0")
+              implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
+              implementation("androidx.activity:activity-compose:1.8.0")
+              implementation(platform("androidx.compose:compose-bom:2023.10.01"))
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.ui:ui-graphics")
+              implementation("androidx.compose.material3:material3")
+              implementation("com.google.code.gson:gson:2.10.1")
+          }
+          EOF
+
+      - name: Generate AndroidManifest.xml
+        run: |
+          cat << 'EOF' > android-app/app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" />
+              <application
+                  android:allowBackup="true"
+                  android:icon="@android:drawable/ic_menu_save"
+                  android:label="Media Downloader"
+                  android:theme="@android:style/Theme.NoTitleBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                      <!-- Share Intent Filter -->
+                      <intent-filter>
+                          <action android:name="android.intent.action.SEND" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <data android:mimeType="text/plain" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+      - name: Generate themes.xml
+        run: |
+          cat << 'EOF' > android-app/app/src/main/res/values/themes.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.AppCompat.Light.NoActionBar" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+          </resources>
+          EOF
+
+      - name: Generate MainActivity.kt (Compose UI + Logic)
+        run: |
+          cat << 'EOF' > android-app/app/src/main/java/com/downloader/app/MainActivity.kt
+          package com.downloader.app
+
+          import android.app.DownloadManager
+          import android.content.Context
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import android.os.Environment
+          import android.widget.VideoView
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.viewinterop.AndroidView
+          import com.google.gson.Gson
+          import com.google.gson.reflect.TypeToken
+          import kotlinx.coroutines.launch
+          import java.text.SimpleDateFormat
+          import java.util.*
+
+          data class HistoryItem(val id: String, val url: String, val date: String)
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  
+                  // Handle Share Intent
+                  var initialUrl = ""
+                  if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+                      val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
+                      val regex = "(https?://[^\s]+)".toRegex()
+                      val match = regex.find(sharedText)
+                      if (match != null) {
+                          initialUrl = match.value
+                      }
+                  }
+
+                  setContent {
+                      MaterialTheme(colorScheme = darkColorScheme(background = Color(0xFF0F172A))) {
+                          DownloaderApp(this, initialUrl)
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun DownloaderApp(context: Context, initialUrl: String) {
+              var tabIndex by remember { mutableStateOf(0) }
+              val tabs = listOf("Download", "History")
+
+              Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                  TabRow(selectedTabIndex = tabIndex, containerColor = Color(0xFF1E293B), contentColor = Color(0xFF38BDF8)) {
+                      tabs.forEachIndexed { index, title ->
+                          Tab(selected = tabIndex == index, onClick = { tabIndex = index }, text = { Text(title, fontWeight = FontWeight.Bold) })
+                      }
+                  }
+                  if (tabIndex == 0) DownloadScreen(context, initialUrl) else HistoryScreen(context)
+              }
+          }
+
+          @Composable
+          fun DownloadScreen(context: Context, initialUrl: String) {
+              var url by remember { mutableStateOf(initialUrl) }
+              var status by remember { mutableStateOf("Ready") }
+              var previewUrl by remember { mutableStateOf("") }
+              val coroutineScope = rememberCoroutineScope()
+              
+              val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+
+              // Auto download if opened via Share Intent
+              LaunchedEffect(initialUrl) {
+                  if (initialUrl.isNotEmpty()) {
+                      previewUrl = "https://allinonedownloader-docker.onrender.com/download?url=${Uri.encode(initialUrl)}"
+                      startDownload(context, initialUrl, prefs)
+                      status = "Downloading Started..."
+                  }
+              }
+
+              Column(modifier = Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                  // 9:16 Video Preview
+                  Box(
+                      modifier = Modifier
+                          .weight(1f)
+                          .aspectRatio(9f / 16f)
+                          .clip(RoundedCornerShape(16.dp))
+                          .background(Color.Black),
+                      contentAlignment = Alignment.Center
+                  ) {
+                      if (previewUrl.isNotEmpty()) {
+                          AndroidView(
+                              factory = { ctx ->
+                                  VideoView(ctx).apply {
+                                      setVideoURI(Uri.parse(previewUrl))
+                                      setOnPreparedListener { it.isLooping = true; start() }
+                                  }
+                              },
+                              modifier = Modifier.fillMaxSize()
+                          )
+                      } else {
+                          Text("Video Preview", color = Color.Gray)
+                      }
+                  }
+                  
+                  Spacer(modifier = Modifier.height(16.dp))
+                  
+                  OutlinedTextField(
+                      value = url,
+                      onValueChange = { url = it },
+                      placeholder = { Text("Paste Reel Link...") },
+                      modifier = Modifier.fillMaxWidth(),
+                      colors = OutlinedTextFieldDefaults.colors(
+                          focusedContainerColor = Color(0xFF1E293B), 
+                          unfocusedContainerColor = Color(0xFF1E293B),
+                          focusedBorderColor = Color(0xFF38BDF8),
+                          unfocusedTextColor = Color.White,
+                          focusedTextColor = Color.White
+                      )
+                  )
+                  
+                  Spacer(modifier = Modifier.height(12.dp))
+                  
+                  Button(
+                      onClick = {
+                          if (url.isNotEmpty()) {
+                              previewUrl = "https://allinonedownloader-docker.onrender.com/download?url=${Uri.encode(url)}"
+                              startDownload(context, url, prefs)
+                              status = "Downloading Started..."
+                          }
+                      },
+                      modifier = Modifier.fillMaxWidth().height(50.dp),
+                      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
+                  ) {
+                      Text("Download Reel", color = Color.Black, fontWeight = FontWeight.Bold)
+                  }
+                  
+                  Spacer(modifier = Modifier.height(8.dp))
+                  Text(status, color = Color(0xFF34D399), fontWeight = FontWeight.Bold)
+              }
+          }
+
+          fun startDownload(context: Context, url: String, prefs: android.content.SharedPreferences) {
+              val apiUrl = "https://allinonedownloader-docker.onrender.com/download?url=${Uri.encode(url)}"
+              val request = DownloadManager.Request(Uri.parse(apiUrl))
+                  .setTitle("Reel Download")
+                  .setDescription("Downloading media file")
+                  .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                  .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Media_${System.currentTimeMillis()}.mp4")
+                  .setAllowedOverMetered(true)
+                  .setAllowedOverRoaming(true)
+
+              val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+              downloadManager.enqueue(request)
+              
+              // Save to History
+              val gson = Gson()
+              val historyJson = prefs.getString("history", "[]")
+              val type = object : TypeToken<MutableList<HistoryItem>>() {}.type
+              val historyList: MutableList<HistoryItem> = gson.fromJson(historyJson, type)
+              
+              val date = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date())
+              historyList.add(0, HistoryItem(System.currentTimeMillis().toString(), url, date))
+              prefs.edit().putString("history", gson.toJson(historyList)).apply()
+          }
+
+          @Composable
+          fun HistoryScreen(context: Context) {
+              val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+              val gson = Gson()
+              
+              var history by remember { 
+                  val json = prefs.getString("history", "[]")
+                  val type = object : TypeToken<List<HistoryItem>>() {}.type
+                  mutableStateOf(gson.fromJson<List<HistoryItem>>(json, type))
+              }
+
+              LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                  items(history) { item ->
+                      Card(
+                          modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                          colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
+                      ) {
+                          Column(modifier = Modifier.padding(16.dp)) {
+                              Text(item.date, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
+                              Spacer(modifier = Modifier.height(4.dp))
+                              Text(item.url, color = Color.White, maxLines = 1)
+                              Spacer(modifier = Modifier.height(8.dp))
+                              Button(
+                                  onClick = {
+                                      val newList = history.filter { it.id != item.id }
+                                      prefs.edit().putString("history", gson.toJson(newList)).apply()
+                                      history = newList
+                                  },
+                                  colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.8f))
+                              ) {
+                                  Text("Delete")
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
 
       - name: Build Android APK
         run: |
-          cd downloader_app
-          flutter build apk --release
+          cd android-app
+          ./gradlew assembleDebug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ReelDownloader-App-APK
-          path: downloader_app/build/app/outputs/flutter-apk/app-release.apk
+          name: MediaDownloader-App
+          path: android-app/app/build/outputs/apk/debug/app-debug.apk
