@@ -1,370 +1,113 @@
-name: Build Native Android Compose APK
+name: Build Roxyfy APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup Java
-        uses: actions/setup-java@v3
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: temurin
+          java-version: 17
 
-      - name: Create Project Structure & Settings
-        run: |
-          mkdir -p android-app/app/src/main/java/com/downloader/app
-          mkdir -p android-app/app/src/main/res/values
-
-          # 🚨 FIX: Added gradle.properties for AndroidX support
-          cat << 'EOF' > android-app/gradle.properties
-          android.useAndroidX=true
-          android.enableJetifier=true
-          EOF
-
-          cat << 'EOF' > android-app/settings.gradle.kts
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          rootProject.name = "ReelDownloader"
-          include(":app")
-          EOF
-
-          cat << 'EOF' > android-app/build.gradle.kts
-          plugins {
-              id("com.android.application") version "8.1.2" apply false
-              id("org.jetbrains.kotlin.android") version "1.9.10" apply false
-          }
-          EOF
-
-      - name: Generate Gradle Wrapper
-        run: |
-          cd android-app
-          gradle wrapper --gradle-version 8.4
-
-      - name: Generate App build.gradle.kts
-        run: |
-          cat << 'EOF' > android-app/app/build.gradle.kts
-          plugins {
-              id("com.android.application")
-              id("org.jetbrains.kotlin.android")
-          }
-          android {
-              namespace = "com.downloader.app"
-              compileSdk = 34
-              defaultConfig {
-                  applicationId = "com.downloader.app"
-                  minSdk = 24
-                  targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0"
-              }
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
-              buildFeatures { compose = true }
-              composeOptions { kotlinCompilerExtensionVersion = "1.5.3" }
-          }
-          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
-          }
-          dependencies {
-              implementation("androidx.core:core-ktx:1.12.0")
-              implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
-              implementation("androidx.activity:activity-compose:1.8.0")
-              implementation(platform("androidx.compose:compose-bom:2023.10.01"))
-              implementation("androidx.compose.ui:ui")
-              implementation("androidx.compose.ui:ui-graphics")
-              implementation("androidx.compose.material3:material3")
-              implementation("com.google.code.gson:gson:2.10.1")
-          }
-          EOF
-
-      - name: Generate AndroidManifest.xml
-        run: |
-          cat << 'EOF' > android-app/app/src/main/AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" />
-              <application
-                  android:allowBackup="true"
-                  android:icon="@android:drawable/ic_menu_save"
-                  android:label="Media Downloader"
-                  android:theme="@android:style/Theme.NoTitleBar">
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                      <intent-filter>
-                          <action android:name="android.intent.action.SEND" />
-                          <category android:name="android.intent.category.DEFAULT" />
-                          <data android:mimeType="text/plain" />
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
-          EOF
-
-      - name: Generate themes.xml
-        run: |
-          cat << 'EOF' > android-app/app/src/main/res/values/themes.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <style name="Theme.AppCompat.Light.NoActionBar" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
-          </resources>
-          EOF
-
-      - name: Generate MainActivity.kt
-        run: |
-          cat << 'EOF' > android-app/app/src/main/java/com/downloader/app/MainActivity.kt
-          package com.downloader.app
-
-          import android.app.DownloadManager
-          import android.content.Context
-          import android.content.Intent
-          import android.net.Uri
-          import android.os.Bundle
-          import android.os.Environment
-          import android.widget.VideoView
-          import androidx.activity.ComponentActivity
-          import androidx.activity.compose.setContent
-          import androidx.compose.foundation.background
-          import androidx.compose.foundation.layout.*
-          import androidx.compose.foundation.lazy.LazyColumn
-          import androidx.compose.foundation.lazy.items
-          import androidx.compose.foundation.shape.RoundedCornerShape
-          import androidx.compose.material3.*
-          import androidx.compose.runtime.*
-          import androidx.compose.ui.Alignment
-          import androidx.compose.ui.Modifier
-          import androidx.compose.ui.draw.clip
-          import androidx.compose.ui.graphics.Color
-          import androidx.compose.ui.text.font.FontWeight
-          import androidx.compose.ui.unit.dp
-          import androidx.compose.ui.viewinterop.AndroidView
-          import com.google.gson.Gson
-          import com.google.gson.reflect.TypeToken
-          import java.text.SimpleDateFormat
-          import java.util.*
-
-          data class HistoryItem(val id: String, val url: String, val date: String)
-
-          class MainActivity : ComponentActivity() {
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  
-                  var initialUrl = ""
-                  if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
-                      val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
-                      val regex = "(https?://[^\\s]+)".toRegex()
-                      val match = regex.find(sharedText)
-                      if (match != null) {
-                          initialUrl = match.value
-                      }
-                  }
-
-                  setContent {
-                      MaterialTheme(colorScheme = darkColorScheme(background = Color(0xFF0F172A))) {
-                          DownloaderApp(this, initialUrl)
-                      }
-                  }
-              }
-          }
-
-          @Composable
-          fun DownloaderApp(context: Context, initialUrl: String) {
-              var tabIndex by remember { mutableStateOf(0) }
-              val tabs = listOf("Download", "History")
-
-              Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                  TabRow(selectedTabIndex = tabIndex, containerColor = Color(0xFF1E293B), contentColor = Color(0xFF38BDF8)) {
-                      tabs.forEachIndexed { index, title ->
-                          Tab(selected = tabIndex == index, onClick = { tabIndex = index }, text = { Text(title, fontWeight = FontWeight.Bold) })
-                      }
-                  }
-                  if (tabIndex == 0) DownloadScreen(context, initialUrl) else HistoryScreen(context)
-              }
-          }
-
-          @Composable
-          fun DownloadScreen(context: Context, initialUrl: String) {
-              var url by remember { mutableStateOf(initialUrl) }
-              var status by remember { mutableStateOf("Ready") }
-              var previewUrl by remember { mutableStateOf("") }
-              
-              val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-
-              LaunchedEffect(initialUrl) {
-                  if (initialUrl.isNotEmpty()) {
-                      previewUrl = "https://allinonedownloader-docker.onrender.com/download?url=${Uri.encode(initialUrl)}"
-                      startDownload(context, initialUrl, prefs)
-                      status = "Downloading Started..."
-                  }
-              }
-
-              Column(modifier = Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                  Box(
-                      modifier = Modifier
-                          .weight(1f)
-                          .aspectRatio(9f / 16f)
-                          .clip(RoundedCornerShape(16.dp))
-                          .background(Color.Black),
-                      contentAlignment = Alignment.Center
-                  ) {
-                      if (previewUrl.isNotEmpty()) {
-                          AndroidView(
-                              factory = { ctx ->
-                                  VideoView(ctx).apply {
-                                      setVideoURI(Uri.parse(previewUrl))
-                                      setOnPreparedListener { it.isLooping = true; start() }
-                                  }
-                              },
-                              modifier = Modifier.fillMaxSize()
-                          )
-                      } else {
-                          Text("Video Preview", color = Color.Gray)
-                      }
-                  }
-                  
-                  Spacer(modifier = Modifier.height(16.dp))
-                  
-                  OutlinedTextField(
-                      value = url,
-                      onValueChange = { url = it },
-                      placeholder = { Text("Paste Reel Link...") },
-                      modifier = Modifier.fillMaxWidth(),
-                      colors = OutlinedTextFieldDefaults.colors(
-                          focusedContainerColor = Color(0xFF1E293B), 
-                          unfocusedContainerColor = Color(0xFF1E293B),
-                          focusedBorderColor = Color(0xFF38BDF8),
-                          unfocusedTextColor = Color.White,
-                          focusedTextColor = Color.White
-                      )
-                  )
-                  
-                  Spacer(modifier = Modifier.height(12.dp))
-                  
-                  Button(
-                      onClick = {
-                          if (url.isNotEmpty()) {
-                              previewUrl = "https://allinonedownloader-docker.onrender.com/download?url=${Uri.encode(url)}"
-                              startDownload(context, url, prefs)
-                              status = "Downloading Started..."
-                          }
-                      },
-                      modifier = Modifier.fillMaxWidth().height(50.dp),
-                      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
-                  ) {
-                      Text("Download Reel", color = Color.Black, fontWeight = FontWeight.Bold)
-                  }
-                  
-                  Spacer(modifier = Modifier.height(8.dp))
-                  Text(status, color = Color(0xFF34D399), fontWeight = FontWeight.Bold)
-              }
-          }
-
-          fun startDownload(context: Context, url: String, prefs: android.content.SharedPreferences) {
-              val apiUrl = "https://allinonedownloader-docker.onrender.com/download?url=${Uri.encode(url)}"
-              val request = DownloadManager.Request(Uri.parse(apiUrl))
-                  .setTitle("Reel Download")
-                  .setDescription("Downloading media file")
-                  .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                  .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Media_${System.currentTimeMillis()}.mp4")
-                  .setAllowedOverMetered(true)
-                  .setAllowedOverRoaming(true)
-
-              val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-              downloadManager.enqueue(request)
-              
-              val gson = Gson()
-              val historyJson = prefs.getString("history", "[]") ?: "[]"
-              val type = object : TypeToken<MutableList<HistoryItem>>() {}.type
-              
-              val historyList: MutableList<HistoryItem> = try {
-                  gson.fromJson(historyJson, type) ?: mutableListOf()
-              } catch (e: Exception) {
-                  mutableListOf()
-              }
-              
-              val date = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date())
-              historyList.add(0, HistoryItem(System.currentTimeMillis().toString(), url, date))
-              prefs.edit().putString("history", gson.toJson(historyList)).apply()
-          }
-
-          @Composable
-          fun HistoryScreen(context: Context) {
-              val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-              val gson = Gson()
-              
-              var history by remember { 
-                  val json = prefs.getString("history", "[]") ?: "[]"
-                  val type = object : TypeToken<List<HistoryItem>>() {}.type
-                  val parsedList: List<HistoryItem> = try {
-                      gson.fromJson(json, type) ?: emptyList()
-                  } catch (e: Exception) {
-                      emptyList()
-                  }
-                  mutableStateOf(parsedList)
-              }
-
-              LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                  items(history) { item ->
-                      Card(
-                          modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                          colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
-                      ) {
-                          Column(modifier = Modifier.padding(16.dp)) {
-                              Text(item.date, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
-                              Spacer(modifier = Modifier.height(4.dp))
-                              Text(item.url, color = Color.White, maxLines = 1)
-                              Spacer(modifier = Modifier.height(8.dp))
-                              Button(
-                                  onClick = {
-                                      val newList = history.filter { it.id != item.id }
-                                      prefs.edit().putString("history", gson.toJson(newList)).apply()
-                                      history = newList
-                                  },
-                                  colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.8f))
-                              ) {
-                                  Text("Delete")
-                              }
-                          }
-                      }
-                  }
-              }
-          }
-          EOF
-
-      - name: Build Android APK
-        run: |
-          cd android-app
-          ./gradlew assembleDebug
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+      - uses: subosito/flutter-action@v2
         with:
-          name: MediaDownloader-App
-          path: android-app/app/build/outputs/apk/debug/app-debug.apk
+          channel: stable
+          cache: true
+
+      # Android/iOS folders are NOT stored in the repo; they are generated here.
+      - name: Generate Android platform files
+        run: |
+          flutter create --platforms=android --org com --project-name roxyfy .
+          rm -f test/widget_test.dart
+
+      - name: Patch Android (permissions, audio service, NewPipe)
+        run: |
+          python3 - <<'PY'
+          import re, glob, os, shutil
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p).read()
+          if 'xmlns:tools' not in s:
+              s = s.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android"',
+                            '<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools"', 1)
+          perms = ''.join('    <uses-permission android:name="android.permission.%s"/>\n' % x
+                          for x in ['INTERNET', 'WAKE_LOCK', 'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_MEDIA_PLAYBACK'])
+          s = s.replace('<application', perms + '    <application android:usesCleartextTraffic="true" android:allowBackup="false"', 1)
+          svc = '''    <service android:name="com.ryanheise.audioservice.AudioService" android:foregroundServiceType="mediaPlayback" android:exported="true" tools:ignore="Instantiatable">
+              <intent-filter><action android:name="android.media.browse.MediaBrowserService"/></intent-filter>
+            </service>
+            <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver" android:exported="true" tools:ignore="Instantiatable">
+              <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON"/></intent-filter>
+            </receiver>
+          '''
+          s = s.replace('</application>', svc + '  </application>', 1)
+          share = '''      <intent-filter>
+              <action android:name="android.intent.action.SEND"/>
+              <category android:name="android.intent.category.DEFAULT"/>
+              <data android:mimeType="text/plain"/>
+            </intent-filter>
+          '''
+          s = s.replace('</activity>', share + '    </activity>', 1)
+          s = re.sub(r'android:label="[^"]*"', 'android:label="Roxyfy"', s, 1)
+          open(p, 'w').write(s)
+          for f in glob.glob('android/app/src/main/**/MainActivity.*', recursive=True):
+              os.remove(f)
+          kd = 'android/app/src/main/kotlin/com/roxyfy'
+          jd = 'android/app/src/main/java/com/roxyfy'
+          os.makedirs(kd, exist_ok=True)
+          os.makedirs(jd, exist_ok=True)
+          shutil.copy('android_extra/MainActivity.kt', kd + '/MainActivity.kt')
+          shutil.copy('android_extra/UrlCompat.java', jd + '/UrlCompat.java')
+          shutil.copy('android_extra/patch_npe.gradle', 'android/app/patch_npe.gradle')
+          shutil.copy('android_extra/proguard-extra.pro', 'android/app/proguard-extra.pro')
+          shutil.copytree('android_extra/res', 'android/app/src/main/res', dirs_exist_ok=True)
+          with open('android/app/build.gradle.kts', 'a') as g:
+              g.write('\napply(from = "patch_npe.gradle")\n')
+          PY
+
+      - run: flutter pub get
+
+      # Real signing key: add the 4 secrets once (see keystore.yml). Without them the debug key is used.
+      - name: Prepare signing
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KS_KEYPASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/roxy.jks"
+            {
+              echo "KEYSTORE_FILE=$RUNNER_TEMP/roxy.jks"
+              echo "KEYSTORE_PASSWORD=$KS_PASS"
+              echo "KEY_ALIAS=$KS_ALIAS"
+              echo "KEY_PASSWORD=$KS_KEYPASS"
+            } >> "$GITHUB_ENV"
+            SIG=$(keytool -list -v -keystore "$RUNNER_TEMP/roxy.jks" -storepass "$KS_PASS" -alias "$KS_ALIAS" | grep -m1 'SHA256:' | sed 's/.*SHA256: *//' | tr -d ':' | tr 'A-F' 'a-f')
+            echo "EXPECTED_SIG=$SIG" >> "$GITHUB_ENV"
+            echo "Signing with your own key."
+          else
+            echo "No keystore secrets: using the debug key (updates may need an uninstall)."
+          fi
+
+      # Release build, only arm64-v8a + armeabi-v7a, Dart code obfuscated.
+      # If the release build ever fails, fall back to a profile build so you still get an APK.
+      - name: Build APKs
+        run: |
+          COMMON="--split-per-abi --target-platform android-arm,android-arm64 --dart-define=EXPECTED_SIG=${EXPECTED_SIG:-}"
+          if ! flutter build apk --release $COMMON --obfuscate --split-debug-info=build/symbols; then
+            echo "::warning::Release build failed, building a profile APK instead."
+            flutter build apk --profile $COMMON
+          fi
+          ls -la build/app/outputs/flutter-apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roxyfy-apk
+          path: build/app/outputs/flutter-apk/*.apk
