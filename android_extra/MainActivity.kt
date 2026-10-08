@@ -219,7 +219,8 @@ class MainActivity : AudioServiceActivity() {
                     val signedData = ByteArray(s.int)
                     s.get(signedData)
                     val d = ByteBuffer.wrap(signedData).order(le)
-                    d.position(d.position() + d.int) // skip digests
+                    val digestsLen = d.int
+                    d.position(d.position() + digestsLen) // skip digests
                     d.int // certificates sequence length
                     val cert = ByteArray(d.int)
                     d.get(cert)
@@ -243,27 +244,28 @@ class MainActivity : AudioServiceActivity() {
             val first = sigs?.firstOrNull()
             if (first != null) sig = sha256hex(first.toByteArray())
         } catch (_: Throwable) {}
-        var tampered = Debug.isDebuggerConnected()
+        val why = StringBuilder()
+        if (Debug.isDebuggerConnected()) why.append('D')
         try {
             val maps = File("/proc/self/maps").readText().lowercase()
-            if (maps.contains("frida") || maps.contains("xposed") || maps.contains("substrate")) tampered = true
+            if (maps.contains("frida") || maps.contains("xposed") || maps.contains("substrate")) why.append('M')
         } catch (_: Throwable) {}
         // Signature killers inject their own Application class and wrap PackageManager in a Proxy.
         val appName = application.javaClass.name.lowercase()
-        if (appName.contains("bin.mt") || appName.contains("killer") || appName.contains("signature") || appName.contains("hook")) tampered = true
-        if (packageName != "com.roxyfy") tampered = true
-        if (Proxy.isProxyClass(packageManager.javaClass)) tampered = true
+        if (appName.contains("bin.mt") || appName.contains("killer") || appName.contains("signature") || appName.contains("hook")) why.append('A')
+        if (packageName != "com.roxyfy") why.append('P')
+        if (Proxy.isProxyClass(packageManager.javaClass)) why.append('X')
         try {
             Class.forName("bin.mt.signature.KillerApplication")
-            tampered = true
+            why.append('K')
         } catch (_: Throwable) {}
         try {
             val f = Class.forName("android.app.ActivityThread").getDeclaredField("sPackageManager")
             f.isAccessible = true
             val o = f.get(null)
-            if (o != null && Proxy.isProxyClass(o.javaClass)) tampered = true
+            if (o != null && Proxy.isProxyClass(o.javaClass)) why.append('H')
         } catch (_: Throwable) {}
-        return mapOf("sig" to sig, "apkSig" to apkSignerHash(applicationInfo.sourceDir), "tampered" to tampered)
+        return mapOf("sig" to sig, "apkSig" to apkSignerHash(applicationInfo.sourceDir), "tampered" to why.isNotEmpty(), "why" to why.toString())
     }
 
     private fun info(url: String): Map<String, Any?> {

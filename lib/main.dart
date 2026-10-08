@@ -14,8 +14,9 @@ import 'state/providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (!await Integrity.ok()) {
-    runApp(const BlockedApp());
+  final bad = await Integrity.failure();
+  if (bad != null) {
+    runApp(BlockedApp(code: bad));
     return;
   }
   audioHandler = await AudioService.init(
@@ -31,7 +32,8 @@ Future<void> main() async {
   final prefs = await SharedPreferences.getInstance();
   // Re-check while the app runs, so a hook started later is caught too.
   Timer.periodic(const Duration(seconds: 45), (_) async {
-    if (!await Integrity.ok()) runApp(const BlockedApp());
+    final b = await Integrity.failure();
+    if (b != null) runApp(BlockedApp(code: b));
   });
   runApp(ProviderScope(
     overrides: [prefsProvider.overrideWithValue(prefs)],
