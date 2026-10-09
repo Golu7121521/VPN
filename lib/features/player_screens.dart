@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../core/theme.dart';
 import '../core/widgets.dart';
 import '../data/models.dart';
+import '../state/ads.dart';
 import '../state/art_color.dart';
 import '../state/providers.dart';
 
@@ -119,6 +120,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
                   onPressed: () => showSongSheet(context, song),
                 ),
               ]),
+              const AppBanner(),
               Expanded(
                 child: Center(
                   child: LayoutBuilder(builder: (_, box) {
@@ -265,10 +267,7 @@ class _DownloadButton extends ConsumerWidget {
           color: done ? AppColors.primary : AppColors.textSecondary),
       onPressed: done
           ? () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Already downloaded')))
-          : () {
-              ref.read(downloadsProvider.notifier).download(song);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Downloading in best quality...')));
-            },
+          : () => downloadWithAd(context, ref, song),
     );
   }
 }
@@ -285,7 +284,8 @@ class QueueScreen extends ConsumerWidget {
       initialIndex: initialTab,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Playing Queue'),
+          toolbarHeight: 56,
+          title: const AppBanner(fallback: Text('Playing Queue')),
           actions: [
             TextButton(
               onPressed: () async {

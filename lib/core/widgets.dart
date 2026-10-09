@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/models.dart';
+import '../state/ads.dart';
 import '../state/providers.dart';
 import 'theme.dart';
 
@@ -436,7 +437,7 @@ void showSongSheet(BuildContext context, Song song) {
           ListTile(
             leading: const Icon(Icons.download_rounded),
             title: const Text('Download'),
-            onTap: () { ref.read(downloadsProvider.notifier).download(song); Navigator.pop(ctx); },
+            onTap: () { Navigator.pop(ctx); downloadWithAd(context, ref, song); },
           ),
           ListTile(
             leading: const Icon(Icons.person_rounded),
@@ -555,4 +556,24 @@ class AppLogo extends StatelessWidget {
   Widget build(BuildContext context) => ClipOval(
         child: Image.asset('assets/icon.png', width: size, height: size, fit: BoxFit.cover),
       );
+}
+
+/// Downloads need one rewarded ad, unless the user is in an ad-free period.
+/// If no ad can be loaded the download is allowed anyway, so nobody gets stuck.
+Future<void> downloadWithAd(BuildContext context, WidgetRef ref, Song song) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final dl = ref.read(downloadsProvider.notifier);
+  if (AdsController.instance.adFree) {
+    dl.download(song);
+    messenger.showSnackBar(const SnackBar(content: Text('Downloading in best quality...')));
+    return;
+  }
+  messenger.showSnackBar(const SnackBar(content: Text('Watch a short ad to start the download')));
+  final r = await AdsController.instance.showRewarded();
+  if (r == RewardResult.dismissed) {
+    messenger.showSnackBar(const SnackBar(content: Text('Watch the full ad to download')));
+    return;
+  }
+  dl.download(song);
+  messenger.showSnackBar(const SnackBar(content: Text('Downloading in best quality...')));
 }

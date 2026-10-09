@@ -108,19 +108,56 @@ class NewPipeMusicRepository implements MusicRepository {
   Future<List<AudioSrc>> audioSources(Song song) async {
     final c = _sources[song.id];
     if (c != null && DateTime.now().difference(c.at) < const Duration(minutes: 20)) return c.list;
-    List<AudioSrc> list;
-    try {
-      list = await _sourcesFor(song.id);
-    } catch (_) {
-      // Some official tracks are restricted: play the same song from a normal video result instead.
-      final alt = (await songs('${song.title} ${song.artistName}', filter: 'videos')).where((s) {
-        final d = (s.duration - song.duration).inSeconds.abs();
-        return song.duration == Duration.zero || d <= 20;
-      });
-      if (alt.isEmpty) rethrow;
-      list = await _sourcesFor(alt.first.id);
+    List<AudioSrc>? list;
+    Object? lastError;
+    // 1) the song itself; YouTube occasionally hiccups, so retry once.
+    for (var attempt = 0; attempt < 2 && list == null; attempt++) {
+      try {
+        list = await _sourcesFor(song.id);
+      } catch (e) {
+        lastError = e;
+        if (attempt == 0) await Future<void>.delayed(const Duration(milliseconds: 600));
+      }
     }
-    if (list.isEmpty) throw Exception('No audio stream');
+    // 2) the same song as a normal video result (some official audio tracks are restricted).
+    if (list == null) {
+      try {
+        final alt = await songs('${song.title} ${song.artistName}', filter: 'videos');
+        final close = alt.where((s) {
+          final d = (s.duration - song.duration).inSeconds.abs();
+          return song.duration == Duration.zero || d <= 20;
+        }).toList();
+        for (final s in [...close, ...alt].take(3)) {
+          try {
+            list = await _sourcesFor(s.id);
+            break;
+          } catch (e) {
+            lastError = e;
+          }
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    // 3) a looser search (title only, no language/type filter) as a last resort.
+    if (list == null) {
+      try {
+        final alt = await songs(song.title, filter: 'all');
+        for (final s in alt.take(3)) {
+          try {
+            list = await _sourcesFor(s.id);
+            break;
+          } catch (e) {
+            lastError = e;
+          }
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    if (list == null || list.isEmpty) {
+      throw lastError ?? Exception('No audio stream');
+    }
     _sources[song.id] = (list: list, at: DateTime.now());
     return list;
   }

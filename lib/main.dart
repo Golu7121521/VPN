@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,16 +7,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'core/integrity.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
+import 'state/ads.dart';
 import 'state/audio_handler.dart';
 import 'state/providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final bad = await Integrity.failure();
-  if (bad != null) {
-    runApp(BlockedApp(code: bad));
-    return;
-  }
+  await registerIntegrity(); // tamper checks run natively and silently kill a modified copy
   audioHandler = await AudioService.init(
     builder: () => RoxyAudioHandler(),
     config: const AudioServiceConfig(
@@ -30,16 +25,14 @@ Future<void> main() async {
     ),
   );
   final prefs = await SharedPreferences.getInstance();
-  // Re-check while the app runs, so a hook started later is caught too.
-  Timer.periodic(const Duration(seconds: 45), (_) async {
-    final b = await Integrity.failure();
-    if (b != null) runApp(BlockedApp(code: b));
-  });
+  AdsController.instance.init(prefs); // not awaited: ads load in the background
   runApp(ProviderScope(
     overrides: [prefsProvider.overrideWithValue(prefs)],
     child: const RoxyfyApp(),
   ));
 }
+
+final appMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 class RoxyfyApp extends ConsumerStatefulWidget {
   const RoxyfyApp({super.key});
@@ -97,5 +90,3 @@ class _RoxyfyAppState extends ConsumerState<RoxyfyApp> {
     );
   }
 }
-
-final appMessengerKey = GlobalKey<ScaffoldMessengerState>();

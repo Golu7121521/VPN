@@ -57,8 +57,10 @@ class DL : Downloader() {
 
 class MainActivity : AudioServiceActivity() {
     private val main = Handler(Looper.getMainLooper())
-    private val known = listOf("search", "stream", "playlist", "suggest", "artistImage", "info", "initialShare", "integrity")
+    private val known = listOf("search", "stream", "playlist", "suggest", "artistImage", "info", "initialShare")
     private var channel: MethodChannel? = null
+    private var expectedSig: String? = null
+    private val integrityHandler = Handler(Looper.getMainLooper())
     private var pendingShare: String? = null
     private var dartReady = false
 
@@ -80,12 +82,25 @@ class MainActivity : AudioServiceActivity() {
         super.configureFlutterEngine(flutterEngine)
         NewPipe.init(DL())
         handleIntent(intent)
+        checkIntegrityOnce()
+        integrityHandler.postDelayed(object : Runnable {
+            override fun run() {
+                checkIntegrityOnce()
+                integrityHandler.postDelayed(this, 45_000)
+            }
+        }, 45_000)
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "roxyfy/newpipe")
         channel!!.setMethodCallHandler { call, result ->
                 if (call.method == "initialShare") {
                     dartReady = true
                     result.success(pendingShare)
                     pendingShare = null
+                    return@setMethodCallHandler
+                }
+                if (call.method == "setExpected") {
+                    expectedSig = call.argument<String>("sig")
+                    result.success(null)
+                    checkIntegrityOnce() // check immediately with the now-known expected signature
                     return@setMethodCallHandler
                 }
                 Thread {
@@ -97,7 +112,6 @@ class MainActivity : AudioServiceActivity() {
                             "suggest" -> suggest(call.argument<String>("query") ?: "")
                             "artistImage" -> artistImage(call.argument<String>("name") ?: "")
                             "info" -> info(call.argument<String>("url") ?: "")
-                            "integrity" -> integrity()
                             else -> null
                         }
                         main.post {
@@ -167,8 +181,16 @@ class MainActivity : AudioServiceActivity() {
             val h = mapOf("url" to hls, "method" to "hls")
             if (live) listOf(h) + sources else sources + h
         } else sources
-        if (all2.isEmpty()) throw Exception("No audio stream found")
-        return mapOf("sources" to all2)
+        if (all2.isNotEmpty()) return mapOf("sources" to all2)
+        // Last resort: some videos have no standalone audio stream, only muxed video+audio.
+        // Use the smallest muxed stream purely as an audio source (ExoPlayer still decodes it).
+        val muxed = info.videoStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && !it.isVideoOnly }
+            .sortedBy { it.height }
+        if (muxed.isNotEmpty()) {
+            return mapOf("sources" to listOf(mapOf("url" to muxed.first().content, "method" to "progressive")))
+        }
+        throw Exception("No audio stream found")
     }
 
     private fun sha256hex(b: ByteArray) =
@@ -176,7 +198,7 @@ class MainActivity : AudioServiceActivity() {
 
     /**
      * Reads the signing certificate straight from the APK file (v2/v3 signing block), so it still
-     * works when PackageManager has been hooked to return a fake signature.
+     * works even if PackageManager has been hooked to lie about the signature.
      */
     private fun apkSignerHash(path: String): String? = try {
         val le = ByteOrder.LITTLE_ENDIAN
@@ -233,39 +255,52 @@ class MainActivity : AudioServiceActivity() {
         null
     }
 
-    // Signing certificate hash + tamper signals (debugger, hooking frameworks, signature killers).
+    /**
+     * Runs entirely on the native side: a tampered copy (wrong signing key, re-signed APK,
+     * debugger, Frida/Xposed, a "signature killer" tool, or a wrong package name) is killed
+     * immediately and silently - no Flutter UI, no message. Safe to call before `expectedSig`
+     * is known; it only acts once it has something to compare against or finds a tamper signal.
+     */
     @Suppress("DEPRECATION")
-    private fun integrity(): Map<String, Any?> {
-        var sig = ""
-        try {
-            val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
-            val pi = packageManager.getPackageInfo(packageName, flags)
-            val sigs = if (Build.VERSION.SDK_INT >= 28) pi.signingInfo?.apkContentsSigners else pi.signatures
-            val first = sigs?.firstOrNull()
-            if (first != null) sig = sha256hex(first.toByteArray())
-        } catch (_: Throwable) {}
-        val why = StringBuilder()
-        if (Debug.isDebuggerConnected()) why.append('D')
-        try {
-            val maps = File("/proc/self/maps").readText().lowercase()
-            if (maps.contains("frida") || maps.contains("xposed") || maps.contains("substrate")) why.append('M')
-        } catch (_: Throwable) {}
-        // Signature killers inject their own Application class and wrap PackageManager in a Proxy.
-        val appName = application.javaClass.name.lowercase()
-        if (appName.contains("bin.mt") || appName.contains("killer") || appName.contains("signature") || appName.contains("hook")) why.append('A')
-        if (packageName != "com.roxyfy") why.append('P')
-        if (Proxy.isProxyClass(packageManager.javaClass)) why.append('X')
-        try {
-            Class.forName("bin.mt.signature.KillerApplication")
-            why.append('K')
-        } catch (_: Throwable) {}
-        try {
-            val f = Class.forName("android.app.ActivityThread").getDeclaredField("sPackageManager")
-            f.isAccessible = true
-            val o = f.get(null)
-            if (o != null && Proxy.isProxyClass(o.javaClass)) why.append('H')
-        } catch (_: Throwable) {}
-        return mapOf("sig" to sig, "apkSig" to apkSignerHash(applicationInfo.sourceDir), "tampered" to why.isNotEmpty(), "why" to why.toString())
+    private fun checkIntegrityOnce() {
+        Thread {
+            var bad = false
+            try {
+                val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+                val pi = packageManager.getPackageInfo(packageName, flags)
+                val sigs = if (Build.VERSION.SDK_INT >= 28) pi.signingInfo?.apkContentsSigners else pi.signatures
+                val sig = sigs?.firstOrNull()?.let { sha256hex(it.toByteArray()) }
+                val expected = expectedSig
+                if (!expected.isNullOrEmpty()) {
+                    if (sig != expected) bad = true
+                    val apkSig = apkSignerHash(applicationInfo.sourceDir)
+                    if (apkSig != null && apkSig != expected) bad = true
+                }
+            } catch (_: Throwable) {}
+            if (Debug.isDebuggerConnected()) bad = true
+            try {
+                val maps = File("/proc/self/maps").readText().lowercase()
+                if (maps.contains("frida") || maps.contains("xposed") || maps.contains("substrate")) bad = true
+            } catch (_: Throwable) {}
+            val appName = application.javaClass.name.lowercase()
+            if (appName.contains("bin.mt") || appName.contains("killer") || appName.contains("signature") || appName.contains("hook")) bad = true
+            if (packageName != "com.roxyfy") bad = true
+            if (Proxy.isProxyClass(packageManager.javaClass)) bad = true
+            try {
+                Class.forName("bin.mt.signature.KillerApplication")
+                bad = true
+            } catch (_: Throwable) {}
+            try {
+                val f = Class.forName("android.app.ActivityThread").getDeclaredField("sPackageManager")
+                f.isAccessible = true
+                val o = f.get(null)
+                if (o != null && Proxy.isProxyClass(o.javaClass)) bad = true
+            } catch (_: Throwable) {}
+            if (bad) {
+                android.os.Process.killProcess(android.os.Process.myPid())
+                Runtime.getRuntime().exit(0)
+            }
+        }.start()
     }
 
     private fun info(url: String): Map<String, Any?> {

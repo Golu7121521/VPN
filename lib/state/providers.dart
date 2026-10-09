@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/mock_data.dart';
 import '../data/models.dart';
 import '../data/repositories.dart';
+import 'ads.dart';
 import 'audio_handler.dart';
 
 const kUserAgent = 'Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0';
@@ -308,6 +309,28 @@ class LibraryNotifier extends Notifier<LibraryState> {
 
 final libraryProvider = NotifierProvider<LibraryNotifier, LibraryState>(LibraryNotifier.new);
 
+// ---------- last played (persistent history; survives app restart) ----------
+class HistoryNotifier extends Notifier<List<Song>> {
+  @override
+  List<Song> build() {
+    final raw = ref.watch(prefsProvider).getStringList('last_played') ?? [];
+    return [for (final r in raw) Song.fromJson(jsonDecode(r) as Map<String, dynamic>)];
+  }
+
+  void add(Song s) {
+    final l = [s, ...state.where((e) => e.id != s.id)].take(50).toList();
+    state = l;
+    ref.read(prefsProvider).setStringList('last_played', [for (final e in l) jsonEncode(e.toJson())]);
+  }
+
+  void clear() {
+    state = [];
+    ref.read(prefsProvider).setStringList('last_played', []);
+  }
+}
+
+final historyProvider = NotifierProvider<HistoryNotifier, List<Song>>(HistoryNotifier.new);
+
 // ---------- likes ----------
 class Likes {
   const Likes(this.songs);
@@ -603,7 +626,17 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
 
   @override
   PlayerStatus build() {
-    _p = AudioPlayer(userAgent: kUserAgent);
+    _p = AudioPlayer(
+      userAgent: kUserAgent,
+      audioLoadConfiguration: const AudioLoadConfiguration(
+        androidLoadControl: AndroidLoadControl(
+          minBufferDuration: Duration(seconds: 30),
+          maxBufferDuration: Duration(minutes: 2),
+          bufferForPlaybackDuration: Duration(seconds: 2),
+          bufferForPlaybackAfterRebufferDuration: Duration(seconds: 4),
+        ),
+      ),
+    );
     final h = audioHandler;
     if (h != null) {
       h.onPlay = () => _p.play();
@@ -683,6 +716,8 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     _completedHandled = false;
     _resolving = true;
     ref.read(tasteProvider.notifier).recordPlay(s.artistName);
+    ref.read(historyProvider.notifier).add(s);
+    AdsController.instance.onSongChanged();
     state = state.copyWith(loading: true, playing: false, duration: s.duration, clearError: true);
     var stage = 'stream';
     String? url;
@@ -710,7 +745,14 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
       }
       if (my != _token) return;
       _resolving = false;
-      _p.play();
+      await _p.play();
+      if (my != _token) return;
+      // The duration/position stream events can race with the song switch; push a fresh,
+      // correct snapshot to the notification right now instead of waiting for them.
+      final realDuration = _p.duration ?? state.duration;
+      state = state.copyWith(duration: realDuration);
+      audioHandler?.show(s, realDuration);
+      audioHandler?.sync(playing: true, loading: false, position: Duration.zero);
     } catch (e) {
       if (my == _token) {
         _resolving = false;

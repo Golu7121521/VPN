@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../core/theme.dart';
 import '../core/widgets.dart';
 import '../data/models.dart';
+import '../state/ads.dart';
 import '../state/providers.dart';
 
 const _moods = ['Podcasts', 'Romance', 'Relax', 'Feel good', 'Party', 'Energise', 'Sad', 'Work out', 'Sleep', 'Focus'];
@@ -55,16 +56,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ]),
           actions: [
             IconButton(
-              tooltip: 'Edit country, languages and artists',
-              icon: const Icon(Icons.tune_rounded),
-              onPressed: () => context.go('/onboarding'),
-            ),
-            IconButton(
               tooltip: 'Search',
               icon: const Icon(Icons.search_rounded, size: 28),
               onPressed: () => context.go('/search'),
             ),
-            const SizedBox(width: 4),
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              color: AppColors.surface,
+              icon: const Icon(Icons.more_vert_rounded),
+              onSelected: (v) {
+                if (v == 'ads') showRemoveAdsSheet(context);
+                if (v == 'prefs') context.go('/onboarding');
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'ads',
+                  child: ValueListenableBuilder<DateTime?>(
+                    valueListenable: AdsController.instance.adFreeUntil,
+                    builder: (_, __, ___) => Row(children: [
+                      const Icon(Icons.block_rounded, size: 20),
+                      const SizedBox(width: 12),
+                      Text(AdsController.instance.adFree
+                          ? 'Remove ads (${AdsController.instance.remaining.inMinutes} min left)'
+                          : 'Remove ads'),
+                    ]),
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'prefs',
+                  child: Row(children: [
+                    Icon(Icons.tune_rounded, size: 20),
+                    SizedBox(width: 12),
+                    Text('Country, languages & artists'),
+                  ]),
+                ),
+              ],
+            ),
           ],
         ),
         SliverToBoxAdapter(
@@ -143,7 +170,7 @@ class _DefaultFeed extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final quick = ref.watch(quickPicksProvider);
-    final hist = ref.watch(playerProvider.select((s) => s.history));
+    final hist = ref.watch(historyProvider);
     final specs = ref.watch(feedSpecsProvider);
     final w = _cardWidth(context);
     final top = ref.watch(topKeyProvider).split('|').where((e) => e.isNotEmpty).toList();
@@ -163,7 +190,7 @@ class _DefaultFeed extends ConsumerWidget {
           error: (_, __) => ErrorState(onRetry: retry),
         ),
         if (hist.isNotEmpty) ...[
-          const SectionHeader('Listen again'),
+          const SectionHeader('Last played'),
           _songRow(ref, hist, w * .8),
         ],
         if (top.isNotEmpty) ...[
