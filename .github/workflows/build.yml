@@ -27,7 +27,7 @@ jobs:
           flutter create --platforms=android --org com --project-name roxyfy .
           rm -f test/widget_test.dart
 
-      - name: Patch Android (permissions, audio service, NewPipe)
+      - name: Patch Android (permissions, audio service, NewPipe, Duplicate Classes Fix)
         run: |
           python3 - <<'PY'
           import re, glob, os, shutil
@@ -71,6 +71,8 @@ jobs:
           shutil.copytree('android_extra/res', 'android/app/src/main/res', dirs_exist_ok=True)
           with open('android/app/build.gradle.kts', 'a') as g:
               g.write('\napply(from = "patch_npe.gradle")\n')
+              # Fix Duplicate Classes error
+              g.write('configurations.all { exclude(group = "com.google.code.findbugs", module = "jsr305") }\n')
           PY
 
       - run: flutter pub get
