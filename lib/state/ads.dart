@@ -1,22 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:startapp_sdk/startapp.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-/// Google's official TEST ad units. Replace these (and the App ID in the manifest patch inside
-/// .github/workflows/build.yml) with your own IDs when you go live.
-class AdIds {
-  static const appOpen = 'ca-app-pub-3940256099942544/9257395921';
-  static const banner = 'ca-app-pub-3940256099942544/6300978111';
-  static const interstitial = 'ca-app-pub-3940256099942544/1033173712';
-  static const rewarded = 'ca-app-pub-3940256099942544/5224354917';
-}
 
 enum RewardResult { earned, dismissed, unavailable }
 
-/// App open, interstitial (every 4 song changes) and rewarded ads, plus the "10 minutes ad-free
+/// Interstitial (every 4 song changes) and rewarded ads, plus the "10 minutes ad-free
 /// per rewarded ad" timer (saved, so it survives restarts).
+/// NOTE: Start.io automatically handles return/app-open ads based on Manifest.
 class AdsController {
   AdsController._();
   static final instance = AdsController._();
@@ -28,9 +20,12 @@ class AdsController {
   final adFreeUntil = ValueNotifier<DateTime?>(null);
   Timer? _expiry;
 
-  InterstitialAd? _interstitial;
-  RewardedAd? _rewarded;
-  bool _appOpenShown = false;
+  final startAppSdk = StartAppSdk();
+  StartAppInterstitialAd? _interstitial;
+  StartAppRewardedVideoAd? _rewarded;
+  
+  Completer<RewardResult>? _rewardCompleter;
+  bool _rewardEarned = false;
   int _changes = 0;
 
   bool get adFree {
@@ -50,12 +45,10 @@ class AdsController {
         _scheduleExpiry();
       }
     }
-    try {
-      await MobileAds.instance.initialize();
-    } catch (_) {
-      return;
-    }
-    _loadAppOpen();
+    
+    // TODO: Comment or set to false before production release
+    startAppSdk.setTestAdsEnabled(true);
+
     _loadInterstitial();
     _loadRewarded();
   }
@@ -79,73 +72,78 @@ class AdsController {
     });
   }
 
-  // ---------- app open ----------
-  void _loadAppOpen() {
-    AppOpenAd.load(
-      adUnitId: AdIds.appOpen,
-      request: const AdRequest(),
-      adLoadCallback: AppOpenAdLoadCallback(
-        onAdLoaded: (ad) {
-          if (_appOpenShown || adFree) {
-            ad.dispose();
-            return;
-          }
-          _appOpenShown = true;
-          ad.fullScreenContentCallback = FullScreenContentCallback(
-            onAdDismissedFullScreenContent: (a) => a.dispose(),
-            onAdFailedToShowFullScreenContent: (a, e) => a.dispose(),
-          );
-          ad.show();
-        },
-        onAdFailedToLoad: (_) {},
-      ),
-    );
-  }
-
   // ---------- interstitial: every 4th song change ----------
   void _loadInterstitial() {
-    InterstitialAd.load(
-      adUnitId: AdIds.interstitial,
-      request: const AdRequest(),
-      adLoadCallback: InterstitialAdLoadCallback(
-        onAdLoaded: (ad) => _interstitial = ad,
-        onAdFailedToLoad: (_) => _interstitial = null,
-      ),
-    );
+    startAppSdk.loadInterstitialAd(
+      onAdHidden: () {
+        _interstitial?.dispose();
+        _interstitial = null;
+        _loadInterstitial();
+      },
+      onAdNotDisplayed: () {
+        _interstitial?.dispose();
+        _interstitial = null;
+        _loadInterstitial();
+      },
+    ).then((ad) {
+      _interstitial = ad;
+    }).onError((error, stackTrace) {
+      debugPrint("Start.io Interstitial error: $error");
+      _interstitial = null;
+    });
   }
 
   void onSongChanged() {
     _changes++;
     if (_changes % 4 != 0 || adFree) return;
+    
     final ad = _interstitial;
     if (ad == null) {
       _loadInterstitial();
       return;
     }
-    _interstitial = null;
-    ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdDismissedFullScreenContent: (a) {
-        a.dispose();
+    
+    ad.show().then((shown) {
+      if (!shown) {
+        ad.dispose();
+        _interstitial = null;
         _loadInterstitial();
-      },
-      onAdFailedToShowFullScreenContent: (a, e) {
-        a.dispose();
-        _loadInterstitial();
-      },
-    );
-    ad.show();
+      }
+    }).onError((error, stackTrace) {
+      ad.dispose();
+      _interstitial = null;
+      _loadInterstitial();
+    });
   }
 
   // ---------- rewarded ----------
   void _loadRewarded() {
-    RewardedAd.load(
-      adUnitId: AdIds.rewarded,
-      request: const AdRequest(),
-      rewardedAdLoadCallback: RewardedAdLoadCallback(
-        onAdLoaded: (ad) => _rewarded = ad,
-        onAdFailedToLoad: (_) => _rewarded = null,
-      ),
-    );
+    startAppSdk.loadRewardedVideoAd(
+      onVideoCompleted: () {
+        _rewardEarned = true;
+      },
+      onAdHidden: () {
+        if (_rewardCompleter != null && !_rewardCompleter!.isCompleted) {
+          _rewardCompleter!.complete(_rewardEarned ? RewardResult.earned : RewardResult.dismissed);
+        }
+        _rewarded?.dispose();
+        _rewarded = null;
+        _loadRewarded();
+      },
+      onAdNotDisplayed: () {
+        if (_rewardCompleter != null && !_rewardCompleter!.isCompleted) {
+          _rewardCompleter!.complete(RewardResult.unavailable);
+        }
+        _rewarded?.dispose();
+        _rewarded = null;
+        _loadRewarded();
+      }
+    ).then((ad) {
+      _rewarded = ad;
+    }).onError((error, stackTrace) {
+      debugPrint("Start.io Rewarded error: $error");
+      _rewarded = null;
+    });
   }
 
   /// Shows a rewarded ad. [RewardResult.unavailable] means no ad could be loaded.
@@ -156,25 +154,30 @@ class AdsController {
         await Future<void>.delayed(const Duration(milliseconds: 500));
       }
     }
+    
     final ad = _rewarded;
     if (ad == null) return RewardResult.unavailable;
-    _rewarded = null;
-    final done = Completer<RewardResult>();
-    var earned = false;
-    ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdDismissedFullScreenContent: (a) {
-        a.dispose();
+    
+    _rewardCompleter = Completer<RewardResult>();
+    _rewardEarned = false;
+    
+    ad.show().then((shown) {
+      if (!shown && !_rewardCompleter!.isCompleted) {
+        _rewardCompleter!.complete(RewardResult.unavailable);
+        _rewarded?.dispose();
+        _rewarded = null;
         _loadRewarded();
-        if (!done.isCompleted) done.complete(earned ? RewardResult.earned : RewardResult.dismissed);
-      },
-      onAdFailedToShowFullScreenContent: (a, e) {
-        a.dispose();
-        _loadRewarded();
-        if (!done.isCompleted) done.complete(RewardResult.unavailable);
-      },
-    );
-    ad.show(onUserEarnedReward: (view, reward) => earned = true);
-    return done.future;
+      }
+    }).onError((error, stackTrace) {
+      if (!_rewardCompleter!.isCompleted) {
+        _rewardCompleter!.complete(RewardResult.unavailable);
+      }
+      _rewarded?.dispose();
+      _rewarded = null;
+      _loadRewarded();
+    });
+    
+    return _rewardCompleter!.future;
   }
 }
 
@@ -187,29 +190,19 @@ class AppBanner extends StatefulWidget {
 }
 
 class _AppBannerState extends State<AppBanner> {
-  BannerAd? _ad;
-  bool _loaded = false;
+  StartAppBannerAd? _ad;
+  final startAppSdk = StartAppSdk();
 
   @override
   void initState() {
     super.initState();
-    _ad = BannerAd(
-      adUnitId: AdIds.banner,
-      size: AdSize.banner,
-      request: const AdRequest(),
-      listener: BannerAdListener(
-        onAdLoaded: (_) {
-          if (mounted) setState(() => _loaded = true);
-        },
-        onAdFailedToLoad: (ad, _) => ad.dispose(),
-      ),
-    )..load();
-  }
-
-  @override
-  void dispose() {
-    _ad?.dispose();
-    super.dispose();
+    startAppSdk.loadBannerAd(StartAppBannerType.BANNER).then((bannerAd) {
+      if (mounted) {
+        setState(() => _ad = bannerAd);
+      }
+    }).onError((error, stackTrace) {
+      debugPrint("Start.io Banner error: $error");
+    });
   }
 
   @override
@@ -217,13 +210,11 @@ class _AppBannerState extends State<AppBanner> {
     return ValueListenableBuilder<DateTime?>(
       valueListenable: AdsController.instance.adFreeUntil,
       builder: (_, __, ___) {
-        if (AdsController.instance.adFree || !_loaded || _ad == null) {
+        if (AdsController.instance.adFree || _ad == null) {
           return widget.fallback ?? const SizedBox.shrink();
         }
         return SizedBox(
-          width: AdSize.banner.width.toDouble(),
-          height: AdSize.banner.height.toDouble(),
-          child: AdWidget(ad: _ad!),
+          child: StartAppBanner(_ad!),
         );
       },
     );

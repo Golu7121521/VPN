@@ -21,7 +21,6 @@ jobs:
           channel: stable
           cache: true
 
-      # Android/iOS folders are NOT stored in the repo; they are generated here.
       - name: Generate Android platform files
         run: |
           flutter create --platforms=android --org com --project-name roxyfy .
@@ -45,7 +44,8 @@ jobs:
             <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver" android:exported="true" tools:ignore="Instantiatable">
               <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON"/></intent-filter>
             </receiver>
-            <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-3940256099942544~3347511713"/>
+            <!-- Start.io APP ID Config (Change YOUR_STARTIO_APP_ID to your real ID for production) -->
+            <meta-data android:name="com.startapp.sdk.APPLICATION_ID" android:value="209754772"/>
           '''
           s = s.replace('</application>', svc + '  </application>', 1)
           share = '''      <intent-filter>
@@ -71,13 +71,11 @@ jobs:
           shutil.copytree('android_extra/res', 'android/app/src/main/res', dirs_exist_ok=True)
           with open('android/app/build.gradle.kts', 'a') as g:
               g.write('\napply(from = "patch_npe.gradle")\n')
-              # Fix Duplicate Classes error
               g.write('configurations.all { exclude(group = "com.google.code.findbugs", module = "jsr305") }\n')
           PY
 
       - run: flutter pub get
 
-      # Real signing key: add the 4 secrets once (see keystore.yml). Without them the debug key is used.
       - name: Prepare signing
         env:
           KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -100,8 +98,6 @@ jobs:
             echo "No keystore secrets: using the debug key (updates may need an uninstall)."
           fi
 
-      # Release build, only arm64-v8a + armeabi-v7a, Dart code obfuscated.
-      # If the release build ever fails, fall back to a profile build so you still get an APK.
       - name: Build APKs
         run: |
           COMMON="--split-per-abi --target-platform android-arm,android-arm64 --dart-define=EXPECTED_SIG=${EXPECTED_SIG:-}"

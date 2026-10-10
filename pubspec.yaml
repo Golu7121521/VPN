@@ -16,7 +16,8 @@ dependencies:
   cached_network_image: ^3.4.1
   shared_preferences: ^2.3.2
   path_provider: ^2.1.5
-  google_mobile_ads: ^9.1.0
+  # Replace google_mobile_ads with startapp_sdk
+  startapp_sdk: ^1.0.1 
 
 dev_dependencies:
   flutter_test:
