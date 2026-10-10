@@ -30,7 +30,7 @@ jobs:
       - name: Patch Android (permissions, audio service, NewPipe, Start.io)
         env:
           # Your Start.io App ID (Start.io dashboard). Test ads work with any id while kTestAds = true.
-          STARTAPP_APP_ID: ${{ vars.STARTAPP_APP_ID || '209754772' }}
+          STARTAPP_APP_ID: ${{ vars.STARTAPP_APP_ID || '200000000' }}
         run: |
           python3 - <<'PY'
           import re, glob, os, shutil
@@ -79,6 +79,18 @@ jobs:
           PY
 
       - run: flutter pub get
+
+      # startapp_sdk is compiled against android-34 but its Start.io dependency needs compileSdk 36+.
+      # Raise it in the plugin and in the app (never lower the app's own value).
+      - name: Raise compileSdk to 36 (Start.io)
+        run: |
+          for f in $(find "${PUB_CACHE:-$HOME/.pub-cache}" -path '*startapp_sdk-*/android/build.gradle*'); do
+            sed -i -E 's/(compileSdk(Version)?[ =(]+)(3[0-9]|2[0-9])/\136/' "$f"
+            echo "== $f"; grep -n "compileSdk" "$f" || true
+          done
+          app=android/app/build.gradle.kts
+          sed -i -E 's/compileSdk *= *flutter\.compileSdkVersion/compileSdk = maxOf(flutter.compileSdkVersion, 36)/' "$app"
+          grep -n "compileSdk" "$app"
 
       # Real signing key: add the 4 secrets once (see keystore.yml). Without them the debug key is used.
       - name: Prepare signing
