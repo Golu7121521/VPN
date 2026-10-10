@@ -58,13 +58,13 @@ jobs:
           s = re.sub(r'android:label="[^"]*"', 'android:label="Roxyfy"', s, 1)
           open(p, 'w').write(s)
           
-          # --- UPDATE COMPILE SDK TO 36 FOR START.IO ---
+          # --- UPDATE APP-LEVEL COMPILE SDK TO 36 ---
           g_path = 'android/app/build.gradle.kts'
           if os.path.exists(g_path):
               g_text = open(g_path).read()
-              g_text = re.sub(r'compileSdk\s*=\s*flutter\.compileSdkVersion', 'compileSdk = 36', g_text)
+              g_text = re.sub(r'compileSdk\s*=\s*[^\n]+', 'compileSdk = 36', g_text)
               open(g_path, 'w').write(g_text)
-          # ---------------------------------------------
+          # ------------------------------------------
           
           for f in glob.glob('android/app/src/main/**/MainActivity.*', recursive=True):
               os.remove(f)
@@ -84,6 +84,15 @@ jobs:
           PY
 
       - run: flutter pub get
+
+      # --- YAHAN NAYA STEP ADD HUA HAI ---
+      - name: Force Plugins to CompileSdk 36
+        run: |
+          find ~/.pub-cache/hosted -path "*/android/build.gradle" -exec sed -i 's/compileSdkVersion [0-9][0-9]/compileSdkVersion 36/g' {} +
+          find ~/.pub-cache/hosted -path "*/android/build.gradle" -exec sed -i 's/compileSdk [0-9][0-9]/compileSdk 36/g' {} +
+          find ~/.pub-cache/hosted -path "*/android/build.gradle.kts" -exec sed -i 's/compileSdk = [0-9][0-9]/compileSdk = 36/g' {} +
+          find ~/.pub-cache/hosted -path "*/android/build.gradle.kts" -exec sed -i 's/compileSdkVersion([0-9][0-9])/compileSdkVersion(36)/g' {} +
+      # -----------------------------------
 
       - name: Prepare signing
         env:
