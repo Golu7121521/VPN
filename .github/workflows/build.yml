@@ -75,6 +75,14 @@ jobs:
 
       - run: flutter pub get
 
+      # google_mobile_ads 5.x still uses `configurations.all`, which Gradle 9 removed.
+      - name: Patch google_mobile_ads for Gradle 9
+        run: |
+          for f in $(find "$PUB_CACHE" -path '*google_mobile_ads-*/android/build.gradle'); do
+            sed -i 's/configurations\.all/configurations.configureEach/g' "$f"
+            grep -n "configureEach" "$f" || true
+          done
+
       # Real signing key: add the 4 secrets once (see keystore.yml). Without them the debug key is used.
       - name: Prepare signing
         env:
