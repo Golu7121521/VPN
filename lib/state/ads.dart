@@ -6,9 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 enum RewardResult { earned, dismissed, unavailable }
 
-/// Interstitial (every 4 song changes) and rewarded ads, plus the "10 minutes ad-free
-/// per rewarded ad" timer (saved, so it survives restarts).
-/// NOTE: Start.io automatically handles return/app-open ads based on Manifest.
 class AdsController {
   AdsController._();
   static final instance = AdsController._();
@@ -26,6 +23,10 @@ class AdsController {
   
   Completer<RewardResult>? _rewardCompleter;
   bool _rewardEarned = false;
+  
+  // App Open ad tracking
+  bool _appOpenShown = false; 
+  // Song changes tracking
   int _changes = 0;
 
   bool get adFree {
@@ -49,11 +50,11 @@ class AdsController {
     // TODO: Comment or set to false before production release
     startAppSdk.setTestAdsEnabled(true);
 
+    _loadAppOpen(); // Trigger app open ad on cold start
     _loadInterstitial();
     _loadRewarded();
   }
 
-  /// One rewarded ad = 10 more ad-free minutes (added on top of what is left).
   void grantAdFree() {
     final base = adFree ? adFreeUntil.value! : DateTime.now();
     final u = base.add(_reward);
@@ -72,7 +73,27 @@ class AdsController {
     });
   }
 
-  // ---------- interstitial: every 4th song change ----------
+  // ---------- app open (Cold Start Splash Ad) ----------
+  void _loadAppOpen() {
+    if (_appOpenShown || adFree) return;
+    
+    startAppSdk.loadInterstitialAd().then((ad) {
+      if (_appOpenShown || adFree) {
+        ad.dispose();
+        return;
+      }
+      _appOpenShown = true;
+      ad.show().then((_) {
+        ad.dispose();
+      }).onError((_, __) {
+        ad.dispose();
+      });
+    }).onError((error, stackTrace) {
+      debugPrint("Start.io App Open error: $error");
+    });
+  }
+
+  // ---------- interstitial: 1st song, then every 4th ----------
   void _loadInterstitial() {
     startAppSdk.loadInterstitialAd(
       onAdHidden: () {
@@ -95,7 +116,9 @@ class AdsController {
 
   void onSongChanged() {
     _changes++;
-    if (_changes % 4 != 0 || adFree) return;
+    // Logic: First song (_changes == 1) ad dikhega, 
+    // uske baad every 4th song (5, 9, 13...) pe dikhega
+    if ((_changes - 1) % 4 != 0 || adFree) return;
     
     final ad = _interstitial;
     if (ad == null) {
@@ -146,7 +169,6 @@ class AdsController {
     });
   }
 
-  /// Shows a rewarded ad. [RewardResult.unavailable] means no ad could be loaded.
   Future<RewardResult> showRewarded() async {
     if (_rewarded == null) {
       _loadRewarded();
