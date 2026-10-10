@@ -1,4 +1,4 @@
-package com.roxyfy
+package com.roxify
 
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -33,6 +33,7 @@ import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.StreamType
+import org.schabi.newpipe.extractor.stream.VideoStream
 import java.util.concurrent.TimeUnit
 
 const val UA = "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0"
@@ -57,14 +58,14 @@ class DL : Downloader() {
 
 class MainActivity : AudioServiceActivity() {
     private val main = Handler(Looper.getMainLooper())
-    private val known = listOf("search", "stream", "playlist", "suggest", "artistImage", "info", "initialShare")
+    private val known = listOf("search", "stream", "videoStream", "playlist", "suggest", "artistImage", "info", "initialShare")
     private var channel: MethodChannel? = null
     private var expectedSig: String? = null
     private val integrityHandler = Handler(Looper.getMainLooper())
     private var pendingShare: String? = null
     private var dartReady = false
 
-    // YouTube "Share" -> Roxyfy: pull the first link out of the shared text.
+    // YouTube "Share" -> Roxify: pull the first link out of the shared text.
     private fun handleIntent(intent: Intent?) {
         if (intent?.action != Intent.ACTION_SEND) return
         val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
@@ -89,7 +90,7 @@ class MainActivity : AudioServiceActivity() {
                 integrityHandler.postDelayed(this, 45_000)
             }
         }, 45_000)
-        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "roxyfy/newpipe")
+        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "roxify/newpipe")
         channel!!.setMethodCallHandler { call, result ->
                 if (call.method == "initialShare") {
                     dartReady = true
@@ -108,6 +109,7 @@ class MainActivity : AudioServiceActivity() {
                         val out: Any? = when (call.method) {
                             "search" -> search(call.argument<String>("query") ?: "", call.argument<String>("filter") ?: "music_songs")
                             "stream" -> stream(call.argument<String>("url") ?: "")
+                            "videoStream" -> videoStream(call.argument<String>("url") ?: "")
                             "playlist" -> playlist(call.argument<String>("url") ?: "")
                             "suggest" -> suggest(call.argument<String>("query") ?: "")
                             "artistImage" -> artistImage(call.argument<String>("name") ?: "")
@@ -191,6 +193,21 @@ class MainActivity : AudioServiceActivity() {
             return mapOf("sources" to listOf(mapOf("url" to muxed.first().content, "method" to "progressive")))
         }
         throw Exception("No audio stream found")
+    }
+
+    /** Muxed (video + audio) progressive streams, best first. Used by the Song/Video switch. */
+    private fun videoStream(url: String): Map<String, Any?> {
+        val info = StreamInfo.getInfo(ServiceList.YouTube, url)
+        val live = info.streamType == StreamType.LIVE_STREAM || info.streamType == StreamType.AUDIO_LIVE_STREAM
+        val muxed = info.videoStreams
+            .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && !it.isVideoOnly && it.isUrl }
+            .sortedWith(compareByDescending<VideoStream> { it.format == MediaFormat.MPEG_4 }.thenByDescending { it.height })
+        val list = muxed.map { mapOf("url" to it.content, "height" to it.height, "format" to (it.format?.name ?: "")) }
+        if (list.isEmpty() && live) {
+            val hls = info.hlsUrl
+            if (hls != null && hls.isNotEmpty()) return mapOf("sources" to listOf(mapOf("url" to hls, "height" to 0, "format" to "HLS")))
+        }
+        return mapOf("sources" to list)
     }
 
     private fun sha256hex(b: ByteArray) =
@@ -284,7 +301,7 @@ class MainActivity : AudioServiceActivity() {
             } catch (_: Throwable) {}
             val appName = application.javaClass.name.lowercase()
             if (appName.contains("bin.mt") || appName.contains("killer") || appName.contains("signature") || appName.contains("hook")) bad = true
-            if (packageName != "com.roxyfy") bad = true
+            if (packageName != "com.roxify") bad = true
             if (Proxy.isProxyClass(packageManager.javaClass)) bad = true
             try {
                 Class.forName("bin.mt.signature.KillerApplication")

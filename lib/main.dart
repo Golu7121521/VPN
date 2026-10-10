@@ -17,8 +17,8 @@ Future<void> main() async {
   audioHandler = await AudioService.init(
     builder: () => RoxyAudioHandler(),
     config: const AudioServiceConfig(
-      androidNotificationChannelId: 'com.roxyfy.audio',
-      androidNotificationChannelName: 'Roxyfy playback',
+      androidNotificationChannelId: 'com.roxify.audio',
+      androidNotificationChannelName: 'Roxify playback',
       androidNotificationIcon: 'drawable/ic_notification',
       androidNotificationOngoing: false,
       androidStopForegroundOnPause: true,
@@ -28,20 +28,20 @@ Future<void> main() async {
   AdsController.instance.init(prefs); // not awaited: ads load in the background
   runApp(ProviderScope(
     overrides: [prefsProvider.overrideWithValue(prefs)],
-    child: const RoxyfyApp(),
+    child: const RoxifyApp(),
   ));
 }
 
 final appMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
-class RoxyfyApp extends ConsumerStatefulWidget {
-  const RoxyfyApp({super.key});
+class RoxifyApp extends ConsumerStatefulWidget {
+  const RoxifyApp({super.key});
   @override
-  ConsumerState<RoxyfyApp> createState() => _RoxyfyAppState();
+  ConsumerState<RoxifyApp> createState() => _RoxifyAppState();
 }
 
-class _RoxyfyAppState extends ConsumerState<RoxyfyApp> {
-  static const _ch = MethodChannel('roxyfy/newpipe');
+class _RoxifyAppState extends ConsumerState<RoxifyApp> {
+  static const _ch = MethodChannel('roxify/newpipe');
 
   // youtu.be/ID, youtube.com/watch?v=ID, /live/ID, /shorts/ID, music.youtube.com/watch?v=ID
   static final _idRe = RegExp(
@@ -82,7 +82,7 @@ class _RoxyfyAppState extends ConsumerState<RoxyfyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'Roxyfy',
+      title: 'Roxify',
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: appMessengerKey,
       theme: AppTheme.dark,

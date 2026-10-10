@@ -126,7 +126,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     if (recents.isEmpty) {
       return const EmptyState(
         icon: Icons.search_rounded,
-        title: 'Search Roxyfy',
+        title: 'Search Roxify',
         message: 'Find songs, artists, albums, playlists and podcasts.',
       );
     }

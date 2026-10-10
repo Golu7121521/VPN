@@ -1,4 +1,4 @@
-package com.roxyfy;
+package com.roxify;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;

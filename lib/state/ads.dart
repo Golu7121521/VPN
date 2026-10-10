@@ -1,32 +1,39 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:startapp_sdk/startapp.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:startapp_sdk/startapp.dart';
+
+/// Start.io (StartApp) ads, TEST mode. Before going live: set [kTestAds] to false and put your
+/// own Start.io App ID in the workflow (STARTAPP_APP_ID in .github/workflows/build.yml).
+const kTestAds = true;
 
 enum RewardResult { earned, dismissed, unavailable }
 
-class AdsController {
+/// Start.io interstitials (every 4 song changes, after the splash screen, and when you come back
+/// to the app) and rewarded video, plus the "10 minutes ad-free per rewarded ad" timer
+/// (saved, so it survives restarts).
+class AdsController with WidgetsBindingObserver {
   AdsController._();
   static final instance = AdsController._();
 
   static const _reward = Duration(minutes: 10);
   static const _key = 'ad_free_until';
+  static const _returnAfter = Duration(seconds: 20); // min time away to count as "returning"
+  static const _cooldown = Duration(seconds: 90); // min gap between two return ads
 
+  final StartAppSdk _sdk = StartAppSdk();
   SharedPreferences? _prefs;
   final adFreeUntil = ValueNotifier<DateTime?>(null);
   Timer? _expiry;
 
-  final startAppSdk = StartAppSdk();
   StartAppInterstitialAd? _interstitial;
-  StartAppRewardedVideoAd? _rewarded;
-  
-  Completer<RewardResult>? _rewardCompleter;
-  bool _rewardEarned = false;
-  
-  // App Open ad tracking
-  bool _appOpenShown = false; 
-  // Song changes tracking
+  Future<void>? _loading;
+  Completer<void>? _closed;
+  bool _showing = false;
+  bool _ready = false; // set after the splash ad so a return ad never fires during start-up
+  DateTime? _pausedAt;
+  DateTime _lastShown = DateTime.fromMillisecondsSinceEpoch(0);
   int _changes = 0;
 
   bool get adFree {
@@ -46,15 +53,14 @@ class AdsController {
         _scheduleExpiry();
       }
     }
-    
-    // TODO: Comment or set to false before production release
-    startAppSdk.setTestAdsEnabled(true);
-
-    _loadAppOpen(); // Trigger app open ad on cold start
-    _loadInterstitial();
-    _loadRewarded();
+    try {
+      _sdk.setTestAdsEnabled(kTestAds);
+    } catch (_) {}
+    WidgetsBinding.instance.addObserver(this);
+    _preload();
   }
 
+  /// One rewarded ad = 10 more ad-free minutes (added on top of what is left).
   void grantAdFree() {
     final base = adFree ? adFreeUntil.value! : DateTime.now();
     final u = base.add(_reward);
@@ -68,178 +74,141 @@ class AdsController {
     final u = adFreeUntil.value;
     if (u == null) return;
     _expiry = Timer(u.difference(DateTime.now()) + const Duration(milliseconds: 300), () {
-      adFreeUntil.value = null; // notifies banners so they come back
+      adFreeUntil.value = null;
       _prefs?.remove(_key);
     });
   }
 
-  // ---------- app open (Cold Start Splash Ad) ----------
-  void _loadAppOpen() {
-    if (_appOpenShown || adFree) return;
-    
-    startAppSdk.loadInterstitialAd().then((ad) {
-      if (_appOpenShown || adFree) {
-        ad.dispose();
-        return;
+  // ---------- interstitial plumbing ----------
+  void _preload() {
+    if (adFree) return;
+    _loadInterstitial();
+  }
+
+  Future<void> _loadInterstitial() {
+    if (_interstitial != null) return Future.value();
+    return _loading ??= () async {
+      try {
+        _interstitial = await _sdk.loadInterstitialAd(
+          onAdHidden: _onClosed,
+          onAdNotDisplayed: _onClosed,
+        );
+      } catch (_) {
+        _interstitial = null;
+      } finally {
+        _loading = null;
       }
-      _appOpenShown = true;
-      ad.show().then((_) {
-        ad.dispose();
-      }).onError((_, __) {
-        ad.dispose();
-      });
-    }).onError((error, stackTrace) {
-      debugPrint("Start.io App Open error: $error");
-    });
+    }();
   }
 
-  // ---------- interstitial: 1st song, then every 4th ----------
-  void _loadInterstitial() {
-    startAppSdk.loadInterstitialAd(
-      onAdHidden: () {
-        _interstitial?.dispose();
-        _interstitial = null;
-        _loadInterstitial();
-      },
-      onAdNotDisplayed: () {
-        _interstitial?.dispose();
-        _interstitial = null;
-        _loadInterstitial();
-      },
-    ).then((ad) {
-      _interstitial = ad;
-    }).onError((error, stackTrace) {
-      debugPrint("Start.io Interstitial error: $error");
-      _interstitial = null;
-    });
+  void _onClosed() {
+    _showing = false;
+    _lastShown = DateTime.now();
+    final c = _closed;
+    _closed = null;
+    if (c != null && !c.isCompleted) c.complete();
   }
 
+  /// Shows a full-screen interstitial and completes when it is closed. Returns false when nothing
+  /// was shown. With [wait] the call also waits (up to 6 s) for the ad to finish loading.
+  Future<bool> showInterstitial({bool wait = false}) async {
+    if (adFree || _showing) return false;
+    if (_interstitial == null) {
+      final load = _loadInterstitial();
+      if (!wait) return false;
+      await load.timeout(const Duration(seconds: 6), onTimeout: () {});
+    }
+    final ad = _interstitial;
+    if (ad == null) return false;
+    _interstitial = null;
+    _showing = true;
+    final closed = _closed = Completer<void>();
+    try {
+      final dynamic r = (ad as dynamic).show();
+      if (r is Future) {
+        final v = await r;
+        if (v == false) {
+          _onClosed();
+          return false;
+        }
+      }
+    } catch (_) {
+      _onClosed();
+      return false;
+    }
+    await closed.future.timeout(const Duration(minutes: 3), onTimeout: _onClosed);
+    try {
+      (ad as dynamic).dispose();
+    } catch (_) {}
+    _loadInterstitial();
+    return true;
+  }
+
+  // ---------- after the splash screen ----------
+  Future<void> showStartupAd() async {
+    try {
+      await showInterstitial(wait: true);
+    } finally {
+      _ready = true;
+    }
+  }
+
+  // ---------- every 4th song change ----------
   void onSongChanged() {
     _changes++;
-    // Logic: First song (_changes == 1) ad dikhega, 
-    // uske baad every 4th song (5, 9, 13...) pe dikhega
-    if ((_changes - 1) % 4 != 0 || adFree) return;
-    
-    final ad = _interstitial;
-    if (ad == null) {
-      _loadInterstitial();
-      return;
-    }
-    
-    ad.show().then((shown) {
-      if (!shown) {
-        ad.dispose();
-        _interstitial = null;
-        _loadInterstitial();
+    if (_changes % 4 != 0 || adFree) return;
+    showInterstitial();
+  }
+
+  // ---------- return ad: shown when you come back to the app after a while ----------
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      if (!_showing) _pausedAt = DateTime.now();
+    } else if (state == AppLifecycleState.resumed) {
+      final t = _pausedAt;
+      _pausedAt = null;
+      if (t == null || !_ready || _showing || adFree) return;
+      final now = DateTime.now();
+      if (now.difference(t) >= _returnAfter && now.difference(_lastShown) >= _cooldown) {
+        showInterstitial();
+      } else {
+        _preload();
       }
-    }).onError((error, stackTrace) {
-      ad.dispose();
-      _interstitial = null;
-      _loadInterstitial();
-    });
+    }
   }
 
   // ---------- rewarded ----------
-  void _loadRewarded() {
-    startAppSdk.loadRewardedVideoAd(
-      onVideoCompleted: () {
-        _rewardEarned = true;
-      },
-      onAdHidden: () {
-        if (_rewardCompleter != null && !_rewardCompleter!.isCompleted) {
-          _rewardCompleter!.complete(_rewardEarned ? RewardResult.earned : RewardResult.dismissed);
-        }
-        _rewarded?.dispose();
-        _rewarded = null;
-        _loadRewarded();
-      },
-      onAdNotDisplayed: () {
-        if (_rewardCompleter != null && !_rewardCompleter!.isCompleted) {
-          _rewardCompleter!.complete(RewardResult.unavailable);
-        }
-        _rewarded?.dispose();
-        _rewarded = null;
-        _loadRewarded();
-      }
-    ).then((ad) {
-      _rewarded = ad;
-    }).onError((error, stackTrace) {
-      debugPrint("Start.io Rewarded error: $error");
-      _rewarded = null;
-    });
-  }
-
+  /// Shows a rewarded video. [RewardResult.unavailable] means no ad could be loaded.
   Future<RewardResult> showRewarded() async {
-    if (_rewarded == null) {
-      _loadRewarded();
-      for (var i = 0; i < 12 && _rewarded == null; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-      }
+    if (_showing) return RewardResult.unavailable;
+    final done = Completer<RewardResult>();
+    var earned = false;
+    _showing = true;
+    void finish(RewardResult r) {
+      _showing = false;
+      _lastShown = DateTime.now();
+      if (!done.isCompleted) done.complete(r);
     }
-    
-    final ad = _rewarded;
-    if (ad == null) return RewardResult.unavailable;
-    
-    _rewardCompleter = Completer<RewardResult>();
-    _rewardEarned = false;
-    
-    ad.show().then((shown) {
-      if (!shown && !_rewardCompleter!.isCompleted) {
-        _rewardCompleter!.complete(RewardResult.unavailable);
-        _rewarded?.dispose();
-        _rewarded = null;
-        _loadRewarded();
+
+    try {
+      final ad = await _sdk.loadRewardedVideoAd(
+        onAdHidden: () => finish(earned ? RewardResult.earned : RewardResult.dismissed),
+        onAdNotDisplayed: () => finish(RewardResult.unavailable),
+        onVideoCompleted: () => earned = true,
+      ).timeout(const Duration(seconds: 12));
+      final dynamic r = (ad as dynamic).show();
+      if (r is Future) {
+        final v = await r;
+        if (v == false) finish(RewardResult.unavailable);
       }
-    }).onError((error, stackTrace) {
-      if (!_rewardCompleter!.isCompleted) {
-        _rewardCompleter!.complete(RewardResult.unavailable);
-      }
-      _rewarded?.dispose();
-      _rewarded = null;
-      _loadRewarded();
+    } catch (_) {
+      finish(RewardResult.unavailable);
+    }
+    return done.future.timeout(const Duration(minutes: 3), onTimeout: () {
+      finish(earned ? RewardResult.earned : RewardResult.dismissed);
+      return earned ? RewardResult.earned : RewardResult.dismissed;
     });
-    
-    return _rewardCompleter!.future;
-  }
-}
-
-/// A banner that disappears while the user is in an ad-free period. Shows [fallback] instead.
-class AppBanner extends StatefulWidget {
-  const AppBanner({super.key, this.fallback});
-  final Widget? fallback;
-  @override
-  State<AppBanner> createState() => _AppBannerState();
-}
-
-class _AppBannerState extends State<AppBanner> {
-  StartAppBannerAd? _ad;
-  final startAppSdk = StartAppSdk();
-
-  @override
-  void initState() {
-    super.initState();
-    startAppSdk.loadBannerAd(StartAppBannerType.BANNER).then((bannerAd) {
-      if (mounted) {
-        setState(() => _ad = bannerAd);
-      }
-    }).onError((error, stackTrace) {
-      debugPrint("Start.io Banner error: $error");
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<DateTime?>(
-      valueListenable: AdsController.instance.adFreeUntil,
-      builder: (_, __, ___) {
-        if (AdsController.instance.adFree || _ad == null) {
-          return widget.fallback ?? const SizedBox.shrink();
-        }
-        return SizedBox(
-          child: StartAppBanner(_ad!),
-        );
-      },
-    );
   }
 }
 
@@ -311,8 +280,8 @@ class _RemoveAdsSheetState extends State<_RemoveAdsSheet> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Remove ads', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
-          const Text('Watch one short ad and enjoy 10 minutes with no ads at all: no banners, no full-screen ads, no download ad. '
-              'Watch more ads to add more time.'),
+          const Text('Watch one short ad and enjoy 10 minutes with no ads at all: no full-screen ads between songs, '
+              'no ad when you open the app and no download ad. Watch more ads to add more time.'),
           const SizedBox(height: 18),
           Container(
             width: double.infinity,

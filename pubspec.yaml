@@ -1,5 +1,5 @@
-name: roxyfy
-description: ROXYFY - music streaming app (mock data, API-ready).
+name: roxify
+description: Roxify - music streaming app.
 publish_to: none
 version: 1.0.0+1
 
@@ -16,8 +16,8 @@ dependencies:
   cached_network_image: ^3.4.1
   shared_preferences: ^2.3.2
   path_provider: ^2.1.5
-  # Replace google_mobile_ads with startapp_sdk
-  startapp_sdk: ^1.0.1 
+  startapp_sdk: ">=1.0.0 <3.0.0"
+  video_player: ^2.9.2
 
 dev_dependencies:
   flutter_test:

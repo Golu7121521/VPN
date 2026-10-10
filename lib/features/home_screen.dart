@@ -19,6 +19,44 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   String? _mood;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowAdsIntro());
+  }
+
+  /// First launch only: explain how to get an ad-free experience.
+  Future<void> _maybeShowAdsIntro() async {
+    final prefs = ref.read(prefsProvider);
+    if (prefs.getBool('ads_intro_seen') ?? false) return;
+    await prefs.setBool('ads_intro_seen', true);
+    if (!mounted) return;
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Row(children: [
+          Icon(Icons.workspace_premium_rounded, color: AppColors.primary),
+          SizedBox(width: 10),
+          Expanded(child: Text('Enjoy Roxify ad-free', style: TextStyle(fontWeight: FontWeight.w800))),
+        ]),
+        content: const Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Roxify is free and supported by ads. Want a break from them?'),
+          SizedBox(height: 14),
+          _IntroStep('1', 'Tap the \u22EE menu at the top right of Home and choose "Remove ads".'),
+          _IntroStep('2', 'Watch one short ad.'),
+          _IntroStep('3', 'Enjoy 10 minutes with no ads at all. Watch more ads to add more time.'),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Got it')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove ads now')),
+        ],
+      ),
+    );
+    if (open == true && mounted) showRemoveAdsSheet(context);
+  }
+
   Future<void> _refresh() async {
     ref.read(refreshProvider.notifier).bump();
     ref.invalidate(songsQueryProvider);
@@ -49,10 +87,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           title: const Row(children: [
             AppLogo(size: 34),
             SizedBox(width: 10),
-            Text(
-              'ROXYFY',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, color: AppColors.primary),
-            ),
+            GlowText('Roxify', fontSize: 26, letterSpacing: 2),
           ]),
           actions: [
             IconButton(
@@ -164,6 +199,24 @@ Widget _rows(BuildContext context, WidgetRef ref, List<FeedRow> rows) {
 
 const _loadingBox = SizedBox(height: 160, child: LoadingState());
 
+class _IntroStep extends StatelessWidget {
+  const _IntroStep(this.n, this.text);
+  final String n, text;
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          CircleAvatar(
+            radius: 11,
+            backgroundColor: AppColors.primary,
+            child: Text(n, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: const TextStyle(color: AppColors.textSecondary))),
+        ]),
+      );
+}
+
 class _DefaultFeed extends ConsumerWidget {
   const _DefaultFeed();
 
@@ -173,7 +226,8 @@ class _DefaultFeed extends ConsumerWidget {
     final hist = ref.watch(historyProvider);
     final specs = ref.watch(feedSpecsProvider);
     final w = _cardWidth(context);
-    final top = ref.watch(topKeyProvider).split('|').where((e) => e.isNotEmpty).toList();
+    // Only artists the user added (onboarding picks or "Add to Your artists"), never auto-added by playback.
+    final top = ref.watch(tasteProvider.select((t) => t.artists));
 
     void retry() {
       ref.invalidate(songsQueryProvider);

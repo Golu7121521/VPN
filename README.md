@@ -1,6 +1,6 @@
-# ROXYFY
+# Roxify
 
-Roxyfy: Flutter music app (Riverpod + GoRouter + just_audio + audio_service). Real YouTube Music data via NewPipeExtractor.
+Roxify: Flutter music app (Riverpod + GoRouter + just_audio + audio_service). Real YouTube Music data via NewPipeExtractor.
 NewPipeExtractor (Android platform channel in `android_extra/MainActivity.kt`).
 
 Stored in the repo: `lib/`, `pubspec.yaml`, `android_extra/` and the workflow.
@@ -10,3 +10,10 @@ NewPipe, builds the APK and uploads it as an artifact.
 ## Build
 Push to `main` -> GitHub Actions builds release APKs for arm64-v8a and armeabi-v7a (Dart code obfuscated).
 For your own signing key run the "Create keystore (run once)" workflow, then add the 4 secrets it prints.
+
+## Ads (Start.io, test mode)
+Ads use the Start.io (StartApp) SDK with test ads enabled (`kTestAds` in `lib/state/ads.dart`).
+AdMob is fully removed and there are no banner ads. Ads: a skippable full-screen ad right after the
+splash screen, a return ad when you come back to the app, an interstitial every 4 song changes and a rewarded
+ad (10 minutes ad-free / downloads).
+Before going live: set `kTestAds = false` and add your Start.io App ID as the repository variable `STARTAPP_APP_ID`.

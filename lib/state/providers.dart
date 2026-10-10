@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:video_player/video_player.dart';
 
 import '../data/mock_data.dart';
 import '../data/models.dart';
@@ -571,8 +573,15 @@ class PlayerStatus {
     this.error,
     this.openCount = 0,
     this.sleepLabel,
+    this.videoMode = false,
+    this.hasVideo = false,
+    this.hasAudio = true,
+    this.videoBusy = false,
+    this.videoRev = 0,
   });
-  final int openCount;
+  final int openCount, videoRev;
+  /// videoMode: the video is what is playing. hasVideo / hasAudio: what this song offers.
+  final bool videoMode, hasVideo, hasAudio, videoBusy;
   final List<Song> queue;
   final int index;
   final bool playing, loading, shuffle;
@@ -595,6 +604,11 @@ class PlayerStatus {
     String? error,
     int? openCount,
     String? sleepLabel,
+    bool? videoMode,
+    bool? hasVideo,
+    bool? hasAudio,
+    bool? videoBusy,
+    int? videoRev,
     bool clearError = false,
     bool clearSleep = false,
   }) =>
@@ -610,6 +624,11 @@ class PlayerStatus {
         error: clearError ? null : (error ?? this.error),
         openCount: openCount ?? this.openCount,
         sleepLabel: clearSleep ? null : (sleepLabel ?? this.sleepLabel),
+        videoMode: videoMode ?? this.videoMode,
+        hasVideo: hasVideo ?? this.hasVideo,
+        hasAudio: hasAudio ?? this.hasAudio,
+        videoBusy: videoBusy ?? this.videoBusy,
+        videoRev: videoRev ?? this.videoRev,
       );
 }
 
@@ -622,7 +641,24 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
   bool _resolving = false;
   bool _completedHandled = false;
 
-  Stream<Duration> get positionStream => _p.positionStream;
+  // ---- video (Song / Video switch) ----
+  VideoPlayerController? _v;
+  VideoPlayerController? get videoController => _v;
+  bool _preferVideo = false; // the user chose Video: later songs start as video too
+  bool _videoEnded = false;
+  String? _audioFor; // id of the song currently loaded in the audio player
+  Duration _resumeAt = Duration.zero;
+  int _failStreak = 0;
+  Timer? _videoTick;
+  final _posCtl = StreamController<Duration>.broadcast();
+
+  Duration get _pos => _v != null ? _v!.value.position : _p.position;
+
+  /// Position of whatever is playing (audio player or video).
+  Stream<Duration> get positionStream async* {
+    yield _pos;
+    yield* _posCtl.stream;
+  }
 
   @override
   PlayerStatus build() {
@@ -639,8 +675,8 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     );
     final h = audioHandler;
     if (h != null) {
-      h.onPlay = () => _p.play();
-      h.onPause = () => _p.pause();
+      h.onPlay = _play;
+      h.onPause = _pause;
       h.onNext = next;
       h.onPrev = previous;
       h.onSeek = seek;
@@ -652,11 +688,15 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
       if (hh == null || song == null) return;
       if (prev?.current != song || prev?.duration != next.duration) hh.show(song, next.duration);
       if (prev?.playing != next.playing || prev?.loading != next.loading || prev?.current != song) {
-        hh.sync(playing: next.playing, loading: next.loading, position: _p.position);
+        hh.sync(playing: next.playing, loading: next.loading, position: _pos);
       }
     });
     final subs = <StreamSubscription<Object?>>[
+      _p.positionStream.listen((p) {
+        if (_v == null) _posCtl.add(p);
+      }),
       _p.playerStateStream.listen((s) {
+        if (_v != null) return; // video is in charge
         final done = s.processingState == ProcessingState.completed;
         state = state.copyWith(
           playing: s.playing && !done,
@@ -670,13 +710,29 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
         }
       }),
       _p.durationStream.listen((d) {
-        if (d != null) state = state.copyWith(duration: d);
+        if (d != null && _v == null) state = state.copyWith(duration: d);
       }),
       _p.playbackEventStream.listen((_) {}, onError: (Object e, StackTrace st) {
+        if (_resolving || _v != null) return; // _load reports its own errors
+        if (_skippable(e.toString()) && _autoSkip()) return;
         state = state.copyWith(error: 'Playback error. Check your internet connection.', playing: false);
       }),
     ];
+    final life = _Life((st) {
+      // Leaving the app: video can't keep playing, so carry on as audio (notification controls work).
+      if (st == AppLifecycleState.paused && _v != null) {
+        if (state.hasAudio) {
+          setVideoMode(false);
+        } else {
+          _pause();
+        }
+      }
+    });
+    WidgetsBinding.instance.addObserver(life);
     ref.onDispose(() {
+      WidgetsBinding.instance.removeObserver(life);
+      _killVideo();
+      _posCtl.close();
       _sleepTimer?.cancel();
       for (final s in subs) {
         s.cancel();
@@ -709,19 +765,44 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     }
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool reload = false}) async {
     final s = state.current;
     if (s == null) return;
     final my = ++_token;
+    final resume = _resumeAt;
+    _resumeAt = Duration.zero;
     _completedHandled = false;
     _resolving = true;
-    ref.read(tasteProvider.notifier).recordPlay(s.artistName);
-    ref.read(historyProvider.notifier).add(s);
-    AdsController.instance.onSongChanged();
-    state = state.copyWith(loading: true, playing: false, duration: s.duration, clearError: true);
+    if (!reload) {
+      ref.read(tasteProvider.notifier).recordPlay(s.artistName);
+      ref.read(historyProvider.notifier).add(s);
+      AdsController.instance.onSongChanged();
+    }
+    state = state.copyWith(
+      loading: true,
+      playing: false,
+      duration: s.duration,
+      clearError: true,
+      videoMode: false,
+      hasVideo: reload ? state.hasVideo : false,
+      hasAudio: true,
+      videoBusy: false,
+      videoRev: state.videoRev + 1,
+    );
+    _killVideo();
     var stage = 'stream';
     String? url;
     try {
+      if (_preferVideo && ref.read(downloadsProvider).pathFor(s.id) == null) {
+        await _p.pause();
+        if (my != _token) return;
+        if (await _startVideo(s, my, position: resume)) {
+          _failStreak = 0;
+          return;
+        }
+        if (my != _token) return;
+        _preferVideo = false; // this song has no usable video: play it as audio
+      }
       final local = ref.read(downloadsProvider).pathFor(s.id);
       final srcs = local != null
           ? [AudioSrc(Uri.file(local).toString(), 'file')]
@@ -744,26 +825,219 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
         await _p.setAudioSource(_HttpStreamSource(srcs.first.url, kUserAgent));
       }
       if (my != _token) return;
+      _audioFor = s.id;
       _resolving = false;
+      if (resume > Duration.zero) await _p.seek(resume);
       await _p.play();
       if (my != _token) return;
+      _failStreak = 0;
+      _probeVideo(s, my);
       // The duration/position stream events can race with the song switch; push a fresh,
       // correct snapshot to the notification right now instead of waiting for them.
       final realDuration = _p.duration ?? state.duration;
       state = state.copyWith(duration: realDuration);
       audioHandler?.show(s, realDuration);
-      audioHandler?.sync(playing: true, loading: false, position: Duration.zero);
+      audioHandler?.sync(playing: true, loading: false, position: resume);
     } catch (e) {
       if (my == _token) {
         _resolving = false;
+        // No audio stream at all: if the song has a video, play that instead.
+        if (stage == 'stream' && await _startVideo(s, my, position: resume)) {
+          state = state.copyWith(hasAudio: false);
+          _failStreak = 0;
+          return;
+        }
+        if (my != _token) return;
         var msg = e.toString().replaceAll('\n', ' ');
         if (url != null) msg = '$msg | ${await _probe(url)}';
+        if (my != _token) return;
+        // e.g. "Source error | probe HTTP 206 audio/mp4": just move on to the next song.
+        if (_skippable(msg) && _autoSkip()) return;
+        _failStreak = 0;
         state = state.copyWith(
           loading: false,
           playing: false,
           error: 'Play failed [$stage]: ${msg.length > 260 ? msg.substring(0, 260) : msg}',
         );
       }
+    }
+  }
+
+  bool _skippable(String msg) =>
+      msg.contains('Source error') || RegExp(r'HTTP (403|404|410)').hasMatch(msg);
+
+  /// Moves on to the next song after a stream that cannot be played. Gives up after a few in a row.
+  bool _autoSkip() {
+    if (_failStreak >= 4 || state.queue.length < 2) return false;
+    final last = state.index + 1 >= state.queue.length;
+    if (last && !state.shuffle && state.repeat != RepeatKind.all) return false;
+    _failStreak++;
+    state = state.copyWith(loading: true, playing: false);
+    next();
+    return true;
+  }
+
+  // ---------- video ----------
+  Future<void> _probeVideo(Song s, int my) async {
+    try {
+      final l = await ref.read(musicRepoProvider).videoSources(s);
+      if (my == _token) state = state.copyWith(hasVideo: l.isNotEmpty);
+    } catch (_) {}
+  }
+
+  Future<bool> _startVideo(Song s, int my, {required Duration position}) async {
+    VideoPlayerController? c;
+    try {
+      final list = await ref.read(musicRepoProvider).videoSources(s);
+      if (my != _token) return false;
+      if (list.isEmpty) {
+        state = state.copyWith(hasVideo: false);
+        return false;
+      }
+      for (final src in list.take(3)) {
+        try {
+          c = VideoPlayerController.networkUrl(Uri.parse(src.url), httpHeaders: {'User-Agent': kUserAgent});
+          await c.initialize().timeout(const Duration(seconds: 15));
+          break;
+        } catch (_) {
+          final bad = c;
+          c = null;
+          bad?.dispose();
+        }
+      }
+      if (c == null) return false;
+      if (my != _token) {
+        c.dispose();
+        return false;
+      }
+      await _p.pause();
+      if (position > Duration.zero) await c.seekTo(position);
+      _killVideo();
+      _v = c;
+      _videoEnded = false;
+      c.addListener(_onVideoTick);
+      _videoTick = Timer.periodic(const Duration(milliseconds: 250), (_) {
+        final v = _v;
+        if (v != null) _posCtl.add(v.value.position);
+      });
+      _resolving = false;
+      state = state.copyWith(
+        videoMode: true,
+        hasVideo: true,
+        videoBusy: false,
+        loading: false,
+        videoRev: state.videoRev + 1,
+        duration: c.value.duration > Duration.zero ? c.value.duration : s.duration,
+        clearError: true,
+      );
+      await c.play();
+      return true;
+    } catch (_) {
+      c?.dispose();
+      return false;
+    }
+  }
+
+  void _onVideoTick() {
+    final v = _v;
+    if (v == null) return;
+    final val = v.value;
+    if (val.hasError) {
+      _videoFailed();
+      return;
+    }
+    final done = val.duration > Duration.zero &&
+        val.position >= val.duration - const Duration(milliseconds: 400) &&
+        !val.isPlaying;
+    final loading = !val.isInitialized || val.isBuffering;
+    if (state.playing != val.isPlaying || state.loading != loading ||
+        (val.duration > Duration.zero && state.duration != val.duration)) {
+      state = state.copyWith(
+        playing: val.isPlaying,
+        loading: loading,
+        duration: val.duration > Duration.zero ? val.duration : state.duration,
+      );
+    }
+    if (done && !_videoEnded) {
+      _videoEnded = true;
+      _onCompleted();
+    } else if (!done) {
+      _videoEnded = false;
+    }
+  }
+
+  /// The video broke: carry on with the audio from the same spot (or skip if there is no audio).
+  void _videoFailed() {
+    final pos = _v?.value.position ?? Duration.zero;
+    _killVideo();
+    _preferVideo = false;
+    state = state.copyWith(videoMode: false, videoRev: state.videoRev + 1);
+    if (state.hasAudio) {
+      _resumeAt = pos;
+      _load(reload: true);
+    } else if (!_autoSkip()) {
+      state = state.copyWith(playing: false, loading: false, error: 'Video could not be played.');
+    }
+  }
+
+  void _killVideo() {
+    _videoTick?.cancel();
+    _videoTick = null;
+    final v = _v;
+    _v = null;
+    if (v == null) return;
+    v.removeListener(_onVideoTick);
+    v.pause();
+    // dispose a moment later so a widget that is still on screen never touches a dead controller
+    Timer(const Duration(milliseconds: 500), v.dispose);
+  }
+
+  /// Song <-> Video switch. Keeps the position when switching.
+  Future<void> setVideoMode(bool on) async {
+    final s = state.current;
+    if (s == null || state.videoBusy || on == (_v != null)) return;
+    final my = _token;
+    if (on) {
+      _preferVideo = true;
+      state = state.copyWith(videoBusy: true);
+      final ok = await _startVideo(s, my, position: _p.position);
+      if (!ok && my == _token) {
+        _preferVideo = false;
+        state = state.copyWith(videoBusy: false, error: 'Video is not available for this song.');
+      }
+    } else {
+      _preferVideo = false;
+      final pos = _v?.value.position ?? Duration.zero;
+      final wasPlaying = _v?.value.isPlaying ?? state.playing;
+      state = state.copyWith(videoMode: false, videoRev: state.videoRev + 1, playing: false);
+      _killVideo();
+      if (_audioFor == s.id) {
+        try {
+          await _p.seek(pos);
+          if (wasPlaying) await _p.play();
+        } catch (_) {}
+      } else {
+        _resumeAt = pos; // audio was never loaded for this song
+        _load(reload: true);
+      }
+    }
+  }
+
+  Future<void> _play() async {
+    final v = _v;
+    if (v != null) {
+      await v.play();
+    } else {
+      await _p.play();
+    }
+  }
+
+  Future<void> _pause() async {
+    final v = _v;
+    if (v != null) {
+      await v.pause();
+    } else {
+      await _p.pause();
     }
   }
 
@@ -790,8 +1064,9 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     }
     if (state.repeat == RepeatKind.one) {
       _completedHandled = false;
-      _p.seek(Duration.zero);
-      _p.play();
+      _videoEnded = false;
+      seek(Duration.zero);
+      _play();
       return;
     }
     final last = state.index + 1 >= state.queue.length;
@@ -807,9 +1082,14 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
     _load();
   }
 
-  void toggle() => state.playing ? _p.pause() : _p.play();
+  void toggle() => state.playing ? _pause() : _play();
   void seek(Duration d) {
-    _p.seek(d);
+    final v = _v;
+    if (v != null) {
+      v.seekTo(d);
+    } else {
+      _p.seek(d);
+    }
     final s = state;
     audioHandler?.sync(playing: s.playing, loading: s.loading, position: d);
   }
@@ -835,8 +1115,8 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
   void previous() {
     final n = state.queue.length;
     if (n == 0) return;
-    if (_p.position > const Duration(seconds: 3)) {
-      _p.seek(Duration.zero);
+    if (_pos > const Duration(seconds: 3)) {
+      seek(Duration.zero);
       return;
     }
     var i = state.index - 1;
@@ -859,7 +1139,7 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
       state = state.copyWith(clearSleep: true);
     } else {
       _sleepTimer = Timer(d, () {
-        _p.pause();
+        _pause();
         state = state.copyWith(clearSleep: true);
       });
       state = state.copyWith(sleepLabel: '${d.inMinutes} min');
@@ -900,6 +1180,8 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
   Future<void> clearQueue() async {
     _token++;
     _resolving = false;
+    _killVideo();
+    _audioFor = null;
     await _p.stop();
     await audioHandler?.hide();
     state = PlayerStatus(history: state.history, shuffle: state.shuffle, repeat: state.repeat);
@@ -938,4 +1220,11 @@ class _HttpStreamSource extends StreamAudioSource {
       contentType: res.headers.contentType?.mimeType ?? 'audio/mp4',
     );
   }
+}
+
+class _Life with WidgetsBindingObserver {
+  _Life(this.onChange);
+  final void Function(AppLifecycleState) onChange;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) => onChange(state);
 }

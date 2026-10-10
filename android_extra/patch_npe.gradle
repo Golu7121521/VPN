@@ -52,7 +52,7 @@ tasks.register('patchNpe') {
       }
       return out.toByteArray()
     }
-    byte[] to = mk('com/roxyfy/UrlCompat')
+    byte[] to = mk('com/roxify/UrlCompat')
     def froms = [mk('java/net/URLEncoder'), mk('java/net/URLDecoder')]
     configurations.npe.files.each { File f ->
       if (!f.name.endsWith('.jar')) return

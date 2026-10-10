@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 /// wrong - no Dart code path, no on-screen message. Safe to call even without a real
 /// keystore configured (EXPECTED_SIG empty): native then only checks for tamper tools.
 const _expectedSig = String.fromEnvironment('EXPECTED_SIG');
-const _ch = MethodChannel('roxyfy/newpipe');
+const _ch = MethodChannel('roxify/newpipe');
 
 Future<void> registerIntegrity() async {
   try {

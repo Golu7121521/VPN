@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
 import '../core/widgets.dart';
+import '../state/ads.dart';
 import '../state/providers.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -21,7 +22,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen> with SingleTickerPr
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(const Duration(milliseconds: 2600), () {
+    Future<void>.delayed(const Duration(milliseconds: 2600), () async {
+      // Full-screen skippable Start.io ad right after the splash; continues when it is closed
+      // (or straight away if no ad is ready / the user is in an ad-free period).
+      await AdsController.instance.showStartupAd();
       if (mounted) context.go(ref.read(tasteProvider).onboarded ? '/home' : '/onboarding');
     });
   }
@@ -53,7 +57,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> with SingleTickerPr
               child: const AppLogo(size: 120),
             ),
             const SizedBox(height: 8),
-            const Text('ROXYFY', style: TextStyle(fontSize: 36, fontWeight: FontWeight.w800, letterSpacing: 8)),
+            const GlowText('Roxify', fontSize: 38, letterSpacing: 6),
             const SizedBox(height: 8),
             const Text('Music for a better you', style: TextStyle(color: AppColors.textSecondary, fontSize: 15)),
             const SizedBox(height: 48),

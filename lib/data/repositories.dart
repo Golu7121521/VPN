@@ -11,6 +11,12 @@ class AudioSrc {
   final String method; // progressive | hls | dash | file
 }
 
+class VideoSrc {
+  const VideoSrc(this.url, this.height);
+  final String url;
+  final int height;
+}
+
 /// Screens depend only on this interface.
 abstract class MusicRepository {
   Future<List<Song>> songs(String query, {String filter});
@@ -19,6 +25,7 @@ abstract class MusicRepository {
   Future<Playlist> playlistDetails(String url);
   Future<Song> songFromUrl(String url);
   Future<List<AudioSrc>> audioSources(Song song);
+  Future<List<VideoSrc>> videoSources(Song song);
   Future<List<String>> suggestions(String query);
   Future<String?> artistImage(String name);
   Future<List<LyricLine>> lyrics(Song song);
@@ -26,9 +33,10 @@ abstract class MusicRepository {
 
 /// Real YouTube Music data through NewPipeExtractor (Android channel) + LRCLIB lyrics.
 class NewPipeMusicRepository implements MusicRepository {
-  static const _ch = MethodChannel('roxyfy/newpipe');
+  static const _ch = MethodChannel('roxify/newpipe');
   final _sources = <String, ({List<AudioSrc> list, DateTime at})>{};
   final _artistImages = <String, String?>{};
+  final _videos = <String, ({List<VideoSrc> list, DateTime at})>{};
 
   Future<List<Map<String, dynamic>>> _raw(String q, String filter) async {
     final raw = await _ch.invokeMethod<List<dynamic>>('search', {'query': q, 'filter': filter}) ?? const [];
@@ -98,21 +106,10 @@ class NewPipeMusicRepository implements MusicRepository {
 
   Future<List<AudioSrc>> _sourcesFor(String url) async {
     final m = await _ch.invokeMapMethod<String, dynamic>('stream', {'url': url});
-    final sources = [
+    return [
       for (final e in (m?['sources'] as List? ?? const []))
         AudioSrc((e as Map)['url'] as String, e['method'] as String),
     ];
-    
-    // HTTP 206 audio/mp4 error ko fix karne ke liye WebM streams ko priority list mein upar laana
-    sources.sort((a, b) {
-      final aIsWebm = a.url.contains('webm') || a.url.contains('mime=audio%2Fwebm');
-      final bIsWebm = b.url.contains('webm') || b.url.contains('mime=audio%2Fwebm');
-      if (aIsWebm && !bIsWebm) return -1;
-      if (!aIsWebm && bIsWebm) return 1;
-      return 0;
-    });
-
-    return sources;
   }
 
   @override
@@ -173,6 +170,20 @@ class NewPipeMusicRepository implements MusicRepository {
     return list;
   }
 
+  /// Muxed video+audio streams (best first). Empty when the song has no video.
+  @override
+  Future<List<VideoSrc>> videoSources(Song song) async {
+    final c = _videos[song.id];
+    if (c != null && DateTime.now().difference(c.at) < const Duration(minutes: 20)) return c.list;
+    final m = await _ch.invokeMapMethod<String, dynamic>('videoStream', {'url': song.id});
+    final list = [
+      for (final e in (m?['sources'] as List? ?? const []))
+        VideoSrc((e as Map)['url'] as String, (e['height'] as int?) ?? 0),
+    ];
+    _videos[song.id] = (list: list, at: DateTime.now());
+    return list;
+  }
+
   @override
   Future<List<String>> suggestions(String query) async {
     final r = await _ch.invokeMethod<List<dynamic>>('suggest', {'query': query}) ?? const [];
@@ -195,7 +206,7 @@ class NewPipeMusicRepository implements MusicRepository {
   Future<dynamic> _getJson(Uri u) async {
     try {
       final c = HttpClient()
-        ..userAgent = 'Roxyfy/1.0'
+        ..userAgent = 'Roxify/1.0'
         ..connectionTimeout = const Duration(seconds: 8);
       final req = await c.getUrl(u);
       final res = await req.close().timeout(const Duration(seconds: 10));

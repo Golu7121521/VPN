@@ -577,3 +577,48 @@ Future<void> downloadWithAd(BuildContext context, WidgetRef ref, Song song) asyn
   dl.download(song);
   messenger.showSnackBar(const SnackBar(content: Text('Downloading in best quality...')));
 }
+
+
+/// Text with a soft, slowly pulsing glow (used for the Roxify name).
+class GlowText extends StatefulWidget {
+  const GlowText(this.text, {super.key, this.fontSize = 24, this.letterSpacing = 3, this.color = AppColors.primary});
+  final String text;
+  final double fontSize, letterSpacing;
+  final Color color;
+  @override
+  State<GlowText> createState() => _GlowTextState();
+}
+
+class _GlowTextState extends State<GlowText> with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 1800))..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) {
+        final t = Curves.easeInOut.transform(_c.value);
+        return Text(
+          widget.text,
+          style: TextStyle(
+            fontSize: widget.fontSize,
+            fontWeight: FontWeight.w800,
+            letterSpacing: widget.letterSpacing,
+            color: Color.lerp(widget.color, Colors.white, .25 + .2 * t),
+            shadows: [
+              Shadow(color: widget.color.withAlpha((90 + 120 * t).round()), blurRadius: 8 + 14 * t),
+              Shadow(color: AppColors.secondary.withAlpha((40 + 90 * t).round()), blurRadius: 18 + 18 * t),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}

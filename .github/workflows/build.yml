@@ -1,4 +1,4 @@
-name: Build Roxyfy APK
+name: Build Roxify APK
 
 on:
   push:
@@ -21,12 +21,16 @@ jobs:
           channel: stable
           cache: true
 
+      # Android/iOS folders are NOT stored in the repo; they are generated here.
       - name: Generate Android platform files
         run: |
-          flutter create --platforms=android --org com --project-name roxyfy .
+          flutter create --platforms=android --org com --project-name roxify .
           rm -f test/widget_test.dart
 
-      - name: Patch Android (permissions, audio service, NewPipe, Duplicate Classes Fix, CompileSdk)
+      - name: Patch Android (permissions, audio service, NewPipe, Start.io)
+        env:
+          # Your Start.io App ID (Start.io dashboard). Test ads work with any id while kTestAds = true.
+          STARTAPP_APP_ID: ${{ vars.STARTAPP_APP_ID || '209754772' }}
         run: |
           python3 - <<'PY'
           import re, glob, os, shutil
@@ -44,9 +48,10 @@ jobs:
             <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver" android:exported="true" tools:ignore="Instantiatable">
               <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON"/></intent-filter>
             </receiver>
-            <!-- Start.io APP ID Config (Change YOUR_STARTIO_APP_ID to your real ID for production) -->
-            <meta-data android:name="com.startapp.sdk.APPLICATION_ID" android:value="209754772"/>
+            <meta-data android:name="com.startapp.sdk.APPLICATION_ID" android:value="__STARTAPP_APP_ID__"/>
+            <meta-data android:name="com.startapp.sdk.RETURN_ADS_ENABLED" android:value="false"/>
           '''
+          s = s.replace('__STARTAPP_APP_ID__', os.environ.get('STARTAPP_APP_ID', '200000000'))
           s = s.replace('</application>', svc + '  </application>', 1)
           share = '''      <intent-filter>
               <action android:name="android.intent.action.SEND"/>
@@ -55,21 +60,12 @@ jobs:
             </intent-filter>
           '''
           s = s.replace('</activity>', share + '    </activity>', 1)
-          s = re.sub(r'android:label="[^"]*"', 'android:label="Roxyfy"', s, 1)
+          s = re.sub(r'android:label="[^"]*"', 'android:label="Roxify"', s, 1)
           open(p, 'w').write(s)
-          
-          # --- UPDATE APP-LEVEL COMPILE SDK TO 36 ---
-          g_path = 'android/app/build.gradle.kts'
-          if os.path.exists(g_path):
-              g_text = open(g_path).read()
-              g_text = re.sub(r'compileSdk\s*=\s*[^\n]+', 'compileSdk = 36', g_text)
-              open(g_path, 'w').write(g_text)
-          # ------------------------------------------
-          
           for f in glob.glob('android/app/src/main/**/MainActivity.*', recursive=True):
               os.remove(f)
-          kd = 'android/app/src/main/kotlin/com/roxyfy'
-          jd = 'android/app/src/main/java/com/roxyfy'
+          kd = 'android/app/src/main/kotlin/com/roxify'
+          jd = 'android/app/src/main/java/com/roxify'
           os.makedirs(kd, exist_ok=True)
           os.makedirs(jd, exist_ok=True)
           shutil.copy('android_extra/MainActivity.kt', kd + '/MainActivity.kt')
@@ -80,20 +76,11 @@ jobs:
           shutil.copytree('android_extra/res', 'android/app/src/main/res', dirs_exist_ok=True)
           with open('android/app/build.gradle.kts', 'a') as g:
               g.write('\napply(from = "patch_npe.gradle")\n')
-              g.write('configurations.all { exclude(group = "com.google.code.findbugs", module = "jsr305") }\n')
           PY
 
       - run: flutter pub get
 
-      # --- YAHAN NAYA STEP ADD HUA HAI ---
-      - name: Force Plugins to CompileSdk 36
-        run: |
-          find ~/.pub-cache/hosted -path "*/android/build.gradle" -exec sed -i 's/compileSdkVersion [0-9][0-9]/compileSdkVersion 36/g' {} +
-          find ~/.pub-cache/hosted -path "*/android/build.gradle" -exec sed -i 's/compileSdk [0-9][0-9]/compileSdk 36/g' {} +
-          find ~/.pub-cache/hosted -path "*/android/build.gradle.kts" -exec sed -i 's/compileSdk = [0-9][0-9]/compileSdk = 36/g' {} +
-          find ~/.pub-cache/hosted -path "*/android/build.gradle.kts" -exec sed -i 's/compileSdkVersion([0-9][0-9])/compileSdkVersion(36)/g' {} +
-      # -----------------------------------
-
+      # Real signing key: add the 4 secrets once (see keystore.yml). Without them the debug key is used.
       - name: Prepare signing
         env:
           KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -116,6 +103,8 @@ jobs:
             echo "No keystore secrets: using the debug key (updates may need an uninstall)."
           fi
 
+      # Release build, only arm64-v8a + armeabi-v7a, Dart code obfuscated.
+      # If the release build ever fails, fall back to a profile build so you still get an APK.
       - name: Build APKs
         run: |
           COMMON="--split-per-abi --target-platform android-arm,android-arm64 --dart-define=EXPECTED_SIG=${EXPECTED_SIG:-}"
@@ -127,5 +116,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: roxyfy-apk
+          name: roxify-apk
           path: build/app/outputs/flutter-apk/*.apk

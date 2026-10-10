@@ -7,3 +7,5 @@
 -dontshrink
 -dontoptimize
 -dontobfuscate
+-dontwarn com.startapp.**
+-keep class com.startapp.** { *; }
