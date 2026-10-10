@@ -121,8 +121,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
     final sleep = ref.watch(playerProvider.select((s) => s.sleepLabel));
     final liked = ref.watch(likesProvider).contains(song.id);
     final videoMode = ref.watch(playerProvider.select((s) => s.videoMode));
-    final hasVideo = ref.watch(playerProvider.select((s) => s.hasVideo));
-    final hasAudio = ref.watch(playerProvider.select((s) => s.hasAudio));
     final videoBusy = ref.watch(playerProvider.select((s) => s.videoBusy));
     final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
     final fs = videoMode && landscape;
@@ -165,13 +163,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Single
                 ),
                 Expanded(
                   child: Center(
-                    child: (hasVideo && hasAudio)
-                        ? _ModeSwitch(
-                            video: videoMode,
-                            busy: videoBusy,
-                            onChanged: (v) => ctl.setVideoMode(v),
-                          )
-                        : const SizedBox.shrink(),
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: _ModeSwitch(
+                        video: videoMode,
+                        busy: videoBusy,
+                        onChanged: (v) => ctl.setVideoMode(v),
+                      ),
+                    ),
                   ),
                 ),
                 IconButton(

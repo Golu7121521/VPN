@@ -12,9 +12,12 @@ class AudioSrc {
 }
 
 class VideoSrc {
-  const VideoSrc(this.url, this.height);
+  const VideoSrc({this.url = '', required this.height, required this.kind, this.dash, this.duration = 0});
   final String url;
-  final int height;
+  final int height, duration;
+  /// 'dash' (separate video + audio merged by ExoPlayer), 'muxed' or 'hls'.
+  final String kind;
+  final Map<String, dynamic>? dash;
 }
 
 /// Screens depend only on this interface.
@@ -178,11 +181,21 @@ class NewPipeMusicRepository implements MusicRepository {
     final m = await _ch.invokeMapMethod<String, dynamic>('videoStream', {'url': song.id});
     final list = [
       for (final e in (m?['sources'] as List? ?? const []))
-        VideoSrc((e as Map)['url'] as String, (e['height'] as int?) ?? 0),
+        _videoSrc(Map<String, dynamic>.from(e as Map)),
     ];
     _videos[song.id] = (list: list, at: DateTime.now());
     return list;
   }
+
+  VideoSrc _videoSrc(Map<String, dynamic> e) => VideoSrc(
+        kind: e['kind'] as String? ?? 'muxed',
+        url: e['url'] as String? ?? '',
+        height: (e['height'] as int?) ?? 0,
+        duration: (e['duration'] as int?) ?? 0,
+        dash: e['kind'] == 'dash'
+            ? {'v': Map<String, dynamic>.from(e['v'] as Map), 'a': Map<String, dynamic>.from(e['a'] as Map)}
+            : null,
+      );
 
   @override
   Future<List<String>> suggestions(String query) async {

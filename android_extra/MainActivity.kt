@@ -166,7 +166,7 @@ class MainActivity : AudioServiceActivity() {
     }
 
     private fun stream(url: String): Map<String, Any?> {
-        val info = StreamInfo.getInfo(ServiceList.YouTube, url)
+        val info = streamInfo(url)
         val all = info.audioStreams
         // AAC (m4a) first, highest bitrate first: plays everywhere. webm/opus and HLS/DASH are fallbacks.
         val prog = all.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }.sortedWith(
@@ -195,19 +195,66 @@ class MainActivity : AudioServiceActivity() {
         throw Exception("No audio stream found")
     }
 
-    /** Muxed (video + audio) progressive streams, best first. Used by the Song/Video switch. */
+    // One YouTube fetch per song: audio and video both read from this cache (15 min).
+    private val infoCache = HashMap<String, Pair<Long, StreamInfo>>()
+    private val infoLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
+    private fun streamInfo(url: String): StreamInfo {
+        synchronized(infoLocks.computeIfAbsent(url) { Any() }) {
+            val now = System.currentTimeMillis()
+            synchronized(infoCache) {
+                val c = infoCache[url]
+                if (c != null && now - c.first < 15 * 60_000L) return c.second
+            }
+            val i = StreamInfo.getInfo(ServiceList.YouTube, url)
+            synchronized(infoCache) {
+                if (infoCache.size > 16) infoCache.keys.firstOrNull()?.let { infoCache.remove(it) }
+                infoCache[url] = now to i
+            }
+            return i
+        }
+    }
+
+    private fun seg(st: org.schabi.newpipe.extractor.stream.Stream): Map<String, Any?> {
+        val t = st.itagItem!!
+        return mapOf(
+            "url" to st.content, "mime" to (st.format?.mimeType ?: ""), "codec" to (t.codec ?: ""),
+            "bitrate" to t.bitrate, "fps" to t.fps, "sampleRate" to t.sampleRate,
+            "initStart" to t.initStart, "initEnd" to t.initEnd, "indexStart" to t.indexStart, "indexEnd" to t.indexEnd,
+        )
+    }
+
+    /**
+     * Video options for the Song/Video switch, best first:
+     * 1) "dash": separate video-only + audio streams (up to 720p) that ExoPlayer merges via a DASH manifest,
+     * 2) "muxed": ready-made video+audio progressive streams.
+     */
     private fun videoStream(url: String): Map<String, Any?> {
-        val info = StreamInfo.getInfo(ServiceList.YouTube, url)
-        val live = info.streamType == StreamType.LIVE_STREAM || info.streamType == StreamType.AUDIO_LIVE_STREAM
-        val muxed = info.videoStreams
+        val info = streamInfo(url)
+        val out = ArrayList<Map<String, Any?>>()
+        fun hasRanges(st: org.schabi.newpipe.extractor.stream.Stream) =
+            st.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && st.isUrl && (st.itagItem?.let { it.indexEnd > 0 } == true)
+        val vOnly = info.videoOnlyStreams.filter { hasRanges(it) }
+        val aud = info.audioStreams.filter { hasRanges(it) }
+        if (vOnly.isNotEmpty() && aud.isNotEmpty()) {
+            val mp4 = vOnly.filter { it.format == MediaFormat.MPEG_4 }
+            val pool = if (mp4.isNotEmpty()) mp4 else vOnly
+            val fit = pool.filter { it.height <= 720 }.ifEmpty { pool }
+            val v = fit.sortedWith(
+                compareByDescending<VideoStream> { it.height }.thenByDescending { (it.itagItem?.codec ?: "").startsWith("avc1") }
+            ).first()
+            val a = aud.sortedWith(
+                compareByDescending<AudioStream> { it.format == MediaFormat.M4A }.thenByDescending { it.averageBitrate }
+            ).first()
+            out.add(mapOf("kind" to "dash", "height" to v.height, "duration" to info.duration.toInt(), "v" to seg(v), "a" to seg(a)))
+        }
+        info.videoStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && !it.isVideoOnly && it.isUrl }
             .sortedWith(compareByDescending<VideoStream> { it.format == MediaFormat.MPEG_4 }.thenByDescending { it.height })
-        val list = muxed.map { mapOf("url" to it.content, "height" to it.height, "format" to (it.format?.name ?: "")) }
-        if (list.isEmpty() && live) {
-            val hls = info.hlsUrl
-            if (hls != null && hls.isNotEmpty()) return mapOf("sources" to listOf(mapOf("url" to hls, "height" to 0, "format" to "HLS")))
-        }
-        return mapOf("sources" to list)
+            .forEach { out.add(mapOf("kind" to "muxed", "url" to it.content, "height" to it.height)) }
+        val hls = info.hlsUrl
+        if (out.isEmpty() && hls != null && hls.isNotEmpty()) out.add(mapOf("kind" to "hls", "url" to hls, "height" to 0))
+        return mapOf("sources" to out)
     }
 
     private fun sha256hex(b: ByteArray) =

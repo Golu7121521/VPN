@@ -832,6 +832,7 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
       if (my != _token) return;
       _failStreak = 0;
       _probeVideo(s, my);
+      _prefetchNext();
       // The duration/position stream events can race with the song switch; push a fresh,
       // correct snapshot to the notification right now instead of waiting for them.
       final realDuration = _p.duration ?? state.duration;
@@ -861,6 +862,15 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
         );
       }
     }
+  }
+
+  /// Resolve the next song's stream while this one plays, so it starts instantly.
+  void _prefetchNext() {
+    final i = state.index + 1;
+    if (i >= state.queue.length) return;
+    final n = state.queue[i];
+    if (n.audioUrl.isNotEmpty || ref.read(downloadsProvider).pathFor(n.id) != null) return;
+    ref.read(musicRepoProvider).audioSources(n).then((_) {}, onError: (_) {});
   }
 
   bool _skippable(String msg) =>
@@ -896,8 +906,15 @@ class PlayerNotifier extends Notifier<PlayerStatus> {
       }
       for (final src in list.take(3)) {
         try {
-          c = VideoPlayerController.networkUrl(Uri.parse(src.url), httpHeaders: {'User-Agent': kUserAgent});
-          await c.initialize().timeout(const Duration(seconds: 15));
+          var url = src.url;
+          var hint = src.kind == 'hls' ? VideoFormat.hls : null;
+          if (src.kind == 'dash') {
+            url = await _DashServer.instance.publish(src);
+            hint = VideoFormat.dash;
+          }
+          c = VideoPlayerController.networkUrl(Uri.parse(url),
+              formatHint: hint, httpHeaders: {'User-Agent': kUserAgent});
+          await c.initialize().timeout(const Duration(seconds: 20));
           break;
         } catch (_) {
           final bad = c;
@@ -1227,4 +1244,62 @@ class _Life with WidgetsBindingObserver {
   final void Function(AppLifecycleState) onChange;
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) => onChange(state);
+}
+
+
+/// Tiny loopback server that hands ExoPlayer a DASH manifest which merges a video-only and an
+/// audio-only stream from NewPipe (so video+audio play together in ExoPlayer).
+class _DashServer {
+  _DashServer._();
+  static final instance = _DashServer._();
+  HttpServer? _server;
+  final _docs = <String, String>{};
+  int _n = 0;
+
+  String _esc(String x) =>
+      x.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+
+  String _rep(Map<String, dynamic> m, String id, {required bool video, required int height}) {
+    final codec = (m['codec'] as String?)?.isNotEmpty == true ? m['codec'] : (video ? 'avc1.4d401f' : 'mp4a.40.2');
+    final attrs = video
+        ? 'width="${(height * 16 / 9).round()}" height="$height" frameRate="${(m['fps'] as int?) ?? 30}"'
+        : 'audioSamplingRate="${(m['sampleRate'] as int?) ?? 44100}"';
+    return '<Representation id="$id" codecs="${_esc('$codec')}" bandwidth="${(m['bitrate'] as int?) ?? 128000}" $attrs>'
+        '${video ? '' : '<AudioChannelConfiguration schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" value="2"/>'}'
+        '<BaseURL>${_esc(m['url'] as String)}</BaseURL>'
+        '<SegmentBase indexRange="${m['indexStart']}-${m['indexEnd']}">'
+        '<Initialization range="${m['initStart']}-${m['initEnd']}"/></SegmentBase></Representation>';
+  }
+
+  Future<String> publish(VideoSrc src) async {
+    final v = src.dash!['v'] as Map<String, dynamic>, a = src.dash!['a'] as Map<String, dynamic>;
+    final xml = '<?xml version="1.0" encoding="utf-8"?>'
+        '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" '
+        'type="static" mediaPresentationDuration="PT${src.duration}S" minBufferTime="PT2S"><Period>'
+        '<AdaptationSet id="0" mimeType="${_esc('${v['mime']}')}" subsegmentAlignment="true">'
+        '${_rep(v, 'v0', video: true, height: src.height)}</AdaptationSet>'
+        '<AdaptationSet id="1" mimeType="${_esc('${a['mime']}')}" subsegmentAlignment="true">'
+        '${_rep(a, 'a0', video: false, height: 0)}</AdaptationSet></Period></MPD>';
+    final srv = _server ??= await _start();
+    final id = '${++_n}';
+    _docs[id] = xml;
+    if (_docs.length > 8) _docs.remove(_docs.keys.first);
+    return 'http://127.0.0.1:${srv.port}/m$id.mpd';
+  }
+
+  Future<HttpServer> _start() async {
+    final srv = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    srv.listen((req) async {
+      final id = RegExp(r'm(\d+)\.mpd').firstMatch(req.uri.path)?.group(1);
+      final doc = id == null ? null : _docs[id];
+      if (doc == null) {
+        req.response.statusCode = 404;
+      } else {
+        req.response.headers.contentType = ContentType('application', 'dash+xml', charset: 'utf-8');
+        req.response.write(doc);
+      }
+      await req.response.close();
+    });
+    return srv;
+  }
 }
