@@ -98,10 +98,21 @@ class NewPipeMusicRepository implements MusicRepository {
 
   Future<List<AudioSrc>> _sourcesFor(String url) async {
     final m = await _ch.invokeMapMethod<String, dynamic>('stream', {'url': url});
-    return [
+    final sources = [
       for (final e in (m?['sources'] as List? ?? const []))
         AudioSrc((e as Map)['url'] as String, e['method'] as String),
     ];
+    
+    // HTTP 206 audio/mp4 error ko fix karne ke liye WebM streams ko priority list mein upar laana
+    sources.sort((a, b) {
+      final aIsWebm = a.url.contains('webm') || a.url.contains('mime=audio%2Fwebm');
+      final bIsWebm = b.url.contains('webm') || b.url.contains('mime=audio%2Fwebm');
+      if (aIsWebm && !bIsWebm) return -1;
+      if (!aIsWebm && bIsWebm) return 1;
+      return 0;
+    });
+
+    return sources;
   }
 
   @override
